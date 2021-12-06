@@ -1,7 +1,8 @@
 WORKFLOW
-Download .fastq.gz  gunzip  trim  quality filter  align to genome  call SNPs  data analysis!
-Double check that your sequencing company trimmed the barcodes off of the ends.  
+Download .fastq.gz --> gunzip --> trim --> quality filter --> align to genome --> call SNPs --> data analysis!
+
 You will get a syntax error if there are smart quotes or m dashes (like Word produces automatically) rather than straight, unformatted quotes or n dashes. You may have to edit by hand if you are copying and pasting from a Word document. It will save a lot of headaches to turn off auto-correct for these components.
+
 Useful tools and tricks: 
 	ctrl u saves what you’ve typed; ctrl y pastes it
 	check how much space you are taking up on a drive with $ du -hs /directory/
