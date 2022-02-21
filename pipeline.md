@@ -4,20 +4,19 @@ Download .fastq.gz --> gunzip --> trim --> quality filter --> align to genome --
 You will get a syntax error if there are smart quotes or m dashes (like Word produces automatically) rather than straight, unformatted quotes or n dashes. You may have to edit by hand if you are copying and pasting from a Word document. It will save a lot of headaches to turn off auto-correct for these components.
 
 Useful tools and tricks: 
-	ctrl u saves what you’ve typed; ctrl y pastes it
-	check how much space you are taking up on a drive with $ du -hs /directory/
-	$ ls -1 *txt | wc –l counts the number of text files in the directory. 
-	find a file with find /directory/ -name 'filename.ext'
-	the ‘$i’ links the command to the ‘i’ you gave it in the for loop; % means take i & cut off everything after the % and replace it with whatever is after the } (e.g., add a new extension to the new file)
-	Count the number of columns: awk '{print NF}' filename.ext | sort -nu | tail -n 1
-	Rename is something like $ for i in *.fastq; do var=‘echo $i|awk -F ‘_’ ‘{print $2 “_R1_trim.fastq”}’‘; mv $i $var; done, where the 'print $2' part tells it to print what's before the 2nd underscore. The following will give you multiple parts of the name: for i in *fastqNEW; do var=‘echo $i|awk -F ‘_’ ‘{print $1 “_” $2 “_” $3 “_” $4 “_R2_trim.fastq”}’‘; mv $i $var; done
-	To replace filenames/ content within a file: sed ‘s/old/new/g’ input.txt > output.txt  --e.g., for i in Honeycreeper*; do cat $i ${i/Honeycreeper/Passerines} > ${i/Honeycreeper/honeypass}; done
-	Calculate the mean of the values in a column: awk '{total += $3} END {print total/NR}' file
-	$ for i in *trim.fastq; do fastq_quality_filter -i $i -o ${i%trim.fastq}qual.fastq; done  this replaces the trim.fastq extension with qual.fastq
-	NOTE: cat FileB >> FileA adds FileB to the end of FileA, but cat FileB > FileA creates a new file named FileA; so be careful not to replace an existing file.  To concatenate multiple files:   cat file1 file2 file3 > newfile, which will put them in the order in which they are typed.  
-	Log in: $ ssh user@destination  and supply the pw when prompted
-	Install packages with wget package_name or yum install package_name
-	If samples were sequenced on multiple runs or lanes, concatenate them. If you will merge reads, make sure the concatenation is in the same order for both reads. If the replicates are in different folders, enter into one of the folders and concatenate with a loop: for i in *fastq; do cat $i ../Mayrun/$i > ../Junerun/$i; done
+# ctrl u saves what you’ve typed; ctrl y pastes it
+#	check how much space you are taking up on a drive with $ du -hs /directory/
+#	$ ls -1 *txt | wc –l counts the number of text files in the directory. 
+#	find a file with find /directory/ -name 'filename.ext'
+#	the ‘$i’ links the command to the ‘i’ you gave it in the for loop; % means take i & cut off everything after the % and replace it with whatever is after the } (e.g., add a new extension to the new file)
+#	Count the number of columns: awk '{print NF}' filename.ext | sort -nu | tail -n 1
+#	Rename: $ for i in *.fastq; do var=‘echo $i|awk -F ‘_’ ‘{print $2 “_R1_trim.fastq”}’‘; mv $i $var; done, where the 'print $2' part tells it to print what's before the 2nd underscore. The following will give you multiple parts of the name: for i in *fastqNEW; do var=‘echo $i|awk -F ‘_’ ‘{print $1 “_” $2 “_” $3 “_” $4 “_R2_trim.fastq”}’‘; mv $i $var; done
+#	To replace filenames/ content within a file: sed ‘s/old/new/g’ input.txt > output.txt  --e.g., for i in Honeycreeper*; do cat $i ${i/Honeycreeper/Passerines} > ${i/Honeycreeper/honeypass}; done
+#	Calculate the mean of the values in a column: awk '{total += $3} END {print total/NR}' file
+#	$ for i in *trim.fastq; do fastq_quality_filter -i $i -o ${i%trim.fastq}qual.fastq; done  this replaces the trim.fastq extension with qual.fastq
+###	NOTE: cat FileB >> FileA adds FileB to the end of FileA, but cat FileB > FileA creates a new file named FileA; so be careful not to replace an existing file.  To concatenate multiple files:   cat file1 file2 file3 > newfile, which will put them in the order in which they are typed.  
+#	Install packages with wget package_name or yum install package_name
+#	If samples were sequenced on multiple runs or lanes, concatenate them. If you will merge reads, make sure the concatenation is in the same order for both reads. If the replicates are in different folders, enter into one of the folders and concatenate with a loop: for i in *fastq; do cat $i ../Mayrun/$i > ../Junerun/$i; done
 	First you need to do QC. Run fastqc on all samples with $ ./FastQC/fastqc fastq_data.fastq which will produce an html file showing summary statistics of the quality; you can see at what point in the read the quality drops into the red. Look through each read of each sample to get an idea of the quality. Be aware that for some programs, the reads have to be the same length for all samples, but for this pipeline they can be different lengths. 
 	To view on home computer, download html files locally: scp xyz@12.34:/fq/*.html /home/
 	Trim reads using TrimGalore or Trimmomatic (which also clips adapters) 
