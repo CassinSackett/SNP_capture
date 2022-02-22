@@ -4,47 +4,49 @@ Download .fastq.gz --> gunzip --> trim --> quality filter --> align to genome --
 You will get a syntax error if there are smart quotes or m dashes (like Word produces automatically) rather than straight, unformatted quotes or n dashes. You may have to edit by hand if you are copying and pasting from a Word document. It will save a lot of headaches to turn off auto-correct for these components.
 
 Useful tools and tricks: 
-# ctrl u saves what you’ve typed; ctrl y pastes it
-#	check how much space you are taking up on a drive with $ du -hs /directory/
-#	$ ls -1 *txt | wc –l counts the number of text files in the directory. 
-#	find a file with find /directory/ -name 'filename.ext'
-#	the ‘$i’ links the command to the ‘i’ you gave it in the for loop; % means take i & cut off everything after the % and replace it with whatever is after the } (e.g., add a new extension to the new file)
-#	Count the number of columns: awk '{print NF}' filename.ext | sort -nu | tail -n 1
-#	Rename: $ for i in *.fastq; do var=‘echo $i|awk -F ‘_’ ‘{print $2 “_R1_trim.fastq”}’‘; mv $i $var; done, where the 'print $2' part tells it to print what's before the 2nd underscore. The following will give you multiple parts of the name: for i in *fastqNEW; do var=‘echo $i|awk -F ‘_’ ‘{print $1 “_” $2 “_” $3 “_” $4 “_R2_trim.fastq”}’‘; mv $i $var; done
-#	To replace filenames/ content within a file: sed ‘s/old/new/g’ input.txt > output.txt  --e.g., for i in Honeycreeper*; do cat $i ${i/Honeycreeper/Passerines} > ${i/Honeycreeper/honeypass}; done
-#	Calculate the mean of the values in a column: awk '{total += $3} END {print total/NR}' file
-#	$ for i in *trim.fastq; do fastq_quality_filter -i $i -o ${i%trim.fastq}qual.fastq; done  this replaces the trim.fastq extension with qual.fastq
-###	NOTE: cat FileB >> FileA adds FileB to the end of FileA, but cat FileB > FileA creates a new file named FileA; so be careful not to replace an existing file.  To concatenate multiple files:   cat file1 file2 file3 > newfile, which will put them in the order in which they are typed.  
-#	Install packages with wget package_name or yum install package_name
-#	If samples were sequenced on multiple runs or lanes, concatenate them. If you will merge reads, make sure the concatenation is in the same order for both reads. If the replicates are in different folders, enter into one of the folders and concatenate with a loop: for i in *fastq; do cat $i ../Mayrun/$i > ../Junerun/$i; done
-	First you need to do QC. Run fastqc on all samples with $ ./FastQC/fastqc fastq_data.fastq which will produce an html file showing summary statistics of the quality; you can see at what point in the read the quality drops into the red. Look through each read of each sample to get an idea of the quality. Be aware that for some programs, the reads have to be the same length for all samples, but for this pipeline they can be different lengths. 
-	To view on home computer, download html files locally: scp xyz@12.34:/fq/*.html /home/
-	Trim reads using TrimGalore or Trimmomatic (which also clips adapters) 
-o	for i in /HAAM_Exp/*.fq; do java -jar /Trimmomatic-0.39/trimmomatic-0.39.jar PE $i ${i%1.fq}2.fq -baseout ${i%1.fq} ILLUMINACLIP:/Trimmomatic-0.39/adapters/NexteraPE-PE.fa:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:15 MINLEN:36; done
-	Compress original fastq files to save space; do one file at a time to avoid gigantic files for i in *.fastq; do gzip ${i%fastq}fastq.gz $i; done
-	Run FastQC again to see the effect of quality filtering. Record the number of reads remaining.
-	Get the reference genome and index it if it has not been indexed (if not, *.fasta will be the only file)
-o	First run $ bwa index -a bwtsw genome.fasta which will create *.bwt, *.pac, *.ann, *.amb and *.sa files.  Next, run $ samtools faidx genome.fasta which will create *.fai. All of these are necessary for the next step. Later you’ll need GATK to create *.dict, or you can do it now with home/gatk-4.1.2.0/gatk --java-options "-Xmx2G" CreateSequenceDictionary -R /sackettl/ref.fasta
-	BWA  mem on the filtered fastq files (bwa mem is an algorithm for long reads (> 100bp) and split alignment; recommended for high-quality queries b/c it’s more accurate). This will align to genome.
-o	For paired end, reads 1 and 2 must be in same order: “In the paired-end mode, the mem command will infer the read orientation and the insert size distribution from a batch of reads.”
-o	for unpaired reads $ for i in *qual.fastq; do bwa mem -v 3 -M -a -t 10 path/to/ref/RefPrefix $i > ${i%qual.fastq}sam 2> ${i%qual.fastq}mem.log; done 
-o	and for paired reads $ for i in *R1_trim.fastq; do bwa mem -v 3 -M -P -a -t 10 /ref/ref.fasta $i ${i/R1trim/R2trim} > ${i%.fastq}.sam 2> ${i%.fastq}.mem.log; done which produces a single paired-end output file but requires the same number of (a corresponding forward and reverse) reads in each input file. ‘reads.fq mates.fq’ are files specifying read1 and read2 for each sample and should come after the reference directory. Parameter flags should be listed in this order (v first).
-o	–M: mark shorter split hits as secondary (important for Picard compatibility/ functionality with MarkDuplicates);  –t: # threads;  –P: In paired-end mode, perform SW to rescue missing hits only but do not try to find hits that fit a proper pair;  –a: Output all alignments for single-end or unpaired paired-end reads. These alignments will be flagged as secondary alignments.
-	Samtools view to make bam files that we can use for GATK and other downstream analyses $ for i in *.sam; do samtools view -q 20 -bt /HcZfUnix_ref/ref.fasta -o ${i%sam}bam $i; done 
-o	If you mapped paired reads and did not quality filter bases/reads previously, do so now by adding the q flag (before the other flags) and a mapping quality threshold, e.g., -q 30
-	If you mapped single end and paired end data separately in bwa, merge them now. Use picardtools to merge paired reads.
-o	$ picardtools merge out.bam bam1 bam2…  
-	Add readgroups and sort bam with Picard Tools (this is slow) 
-o	$ for i in *qual.bam; do java -Xmx2g -jar /home/picard-tools-1.123/picard.jar AddOrReplaceReadGroups INPUT=$i OUTPUT=${i%bam}tag.bam MAX_RECORDS_IN_RAM=1000000 TMP_DIR=$PWD/tmp SO=coordinate RGID=${i%bam} RGLB=1 RGPL=illumina RGPU=1 RGSM=${i%bam}; done
-o	RGID=Read Group ID. Currently this is set to the individual, but you could do modern vs ancient or high/low/mid (e.g., in sample names, every second underscore is the RGID). This modifies the bam headers so that they are “tagged” with the read group ID (necessary for downstream analyses).  MAX_RECORDS_IN_RAM is necessary for large files (e.g., over 60 GB); TMP_DIR is necessary if there are limits to the number of files allowed in a directory.
-o	This step also sorts by where the reads align in the reference genome.
-o	For some reason you cannot add picardtools to your path because it is not C-compiled, so you have to set an environment variable. On our HPC “the module file uses a method similar to the one picard documentation gives to set up an alias called runpicard” (which they have done for us). So the new command is for i in *.bam; do runpicard AddOrReplaceReadGroups INPUT=$i OUTPUT=${i%bam}tag.bam SO=coordinate RGID=${i%bam} RGLB=1 RGPL=illumina RGPU=1 RGSM=${i%bam}; done 
-o	Many enormous temp files are created in this step, so if you install yourself on a HPC, you need to add a tmp directory in a location with unlimited storage so they won’t be saved to the compute node. Before my command, I added cd $PBS_O_WORKDIR \ mkdir -p tmp and then in my command before the SO part I added TMP_DIR=$PWD/tmp
-	Mark PCR duplicates with Picard Tools
-o	$ for i in *.tag.bam; do java -Xmx16g -jar /picard-tools-1.1/MarkDuplicates.jar INPUT=$i OUTPUT=${i%tag.bam}rmdup.bam MAX_RECORDS_IN_RAM=1000000 METRICS_FILE=${i%tag.bam}rmdup.metrics ASSUME_SORTED=true; done
-o	This step removes PCR duplicates. You should look at metrics file for statistics on how many were duplicates, etc. The .tag.bam files are needed in the next step.
-	Index sorted, duplicate-filtered bam with samtools (this creates the .bai file)
-o	$ for i in *.rmdup.bam; do samtools index $i; done
+ ctrl u saves what you’ve typed; ctrl y pastes it
+	check how much space you are taking up on a drive with $ du -hs /directory/
+	$ ls -1 *txt | wc –l counts the number of text files in the directory. 
+	find a file with find /directory/ -name 'filename.ext'
+	the ‘$i’ links the command to the ‘i’ you gave it in the for loop; % means take i & cut off everything after the % and replace it with whatever is after the } (e.g., add a new extension to the new file)
+	Count the number of columns: awk '{print NF}' filename.ext | sort -nu | tail -n 1
+	Rename: $ for i in *.fastq; do var=‘echo $i|awk -F ‘_’ ‘{print $2 “_R1_trim.fastq”}’‘; mv $i $var; done, where the 'print $2' part tells it to print what's before the 2nd underscore. The following will give you multiple parts of the name: for i in *fastqNEW; do var=‘echo $i|awk -F ‘_’ ‘{print $1 “_” $2 “_” $3 “_” $4 “_R2_trim.fastq”}’‘; mv $i $var; done
+	To replace filenames/ content within a file: sed ‘s/old/new/g’ input.txt > output.txt  --e.g., for i in Honeycreeper*; do cat $i ${i/Honeycreeper/Passerines} > ${i/Honeycreeper/honeypass}; done
+	Calculate the mean of the values in a column: awk '{total += $3} END {print total/NR}' file
+	$ for i in *trim.fastq; do fastq_quality_filter -i $i -o ${i%trim.fastq}qual.fastq; done  this replaces the trim.fastq extension with qual.fastq
+	NOTE: cat FileB >> FileA adds FileB to the end of FileA, but cat FileB > FileA creates a new file named FileA; so be careful not to replace an existing file.  To concatenate multiple files:   cat file1 file2 file3 > newfile, which will put them in the order in which they are typed.  
+	Install packages with wget package_name or yum install package_name
+	If samples were sequenced on multiple runs or lanes, concatenate them. If you will merge reads, make sure the concatenation is in the same order for both reads. If the replicates are in different folders, enter into one of the folders and concatenate with a loop: for i in *fastq; do cat $i ../Mayrun/$i > ../Junerun/$i; done
+ 
+	First you need to do QC. Run fastqc on all samples with $ ./FastQC/fastqc fastq_data.fastq which will produce an html file showing summary statistics of the quality; you can see at what point in the read the quality drops into the red. Look through each read of each sample to get an idea of the quality. Be aware that for some programs, the reads have to be the same length for all samples, but for this pipeline they can be different lengths. 
+	To view on home computer, download html files locally: scp user@12.34:/fq/*.html /home/
+	Trim reads using TrimGalore or Trimmomatic (which also clips adapters) 
+	for i in /HAAM_Exp/*.fq; do java -jar /Trimmomatic-0.39/trimmomatic-0.39.jar PE $i ${i%1.fq}2.fq -baseout ${i%1.fq} ILLUMINACLIP:/Trimmomatic-0.39/adapters/NexteraPE-PE.fa:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:15 MINLEN:36; done
+	Compress original fastq files to save space; do one file at a time to avoid gigantic files for i in *.fastq; do gzip ${i%fastq}fastq.gz $i; done
+	Run FastQC again to see the effect of quality filtering. Record the number of reads remaining.
+	Get the reference genome and index it if it has not been indexed (if not, *.fasta will be the only file)
+	First run $ bwa index -a bwtsw genome.fasta which will create *.bwt, *.pac, *.ann, *.amb and *.sa files.  Next, run $ samtools faidx genome.fasta which will create *.fai. All of these are necessary for the next step. Later you’ll need GATK to create *.dict, or you can do it now with home/gatk-4.1.2.0/gatk --java-options "-Xmx2G" CreateSequenceDictionary -R /sackettl/ref.fasta
+	BWA  mem on the filtered fastq files (bwa mem is an algorithm for long reads (> 100bp) and split alignment; recommended for high-quality queries b/c it’s more accurate). This will align to genome.
+	For paired end, reads 1 and 2 must be in same order: “In the paired-end mode, the mem command will infer the read orientation and the insert size distribution from a batch of reads.”
+	for unpaired reads $ for i in *qual.fastq; do bwa mem -v 3 -M -a -t 10 path/to/ref/RefPrefix $i > ${i%qual.fastq}sam 2> ${i%qual.fastq}mem.log; done 
+	and for paired reads $ for i in *R1_trim.fastq; do bwa mem -v 3 -M -P -a -t 10 /ref/ref.fasta $i ${i/R1trim/R2trim} > ${i%.fastq}.sam 2> ${i%.fastq}.mem.log; done which produces a single paired-end output file but requires the same number of (a corresponding forward and reverse) reads in each input file. ‘reads.fq mates.fq’ are files specifying read1 and read2 for each sample and should come after the reference directory. Parameter flags should be listed in this order (v first).
+	–M: mark shorter split hits as secondary (important for Picard compatibility/ functionality with MarkDuplicates);  –t: # threads;  –P: In paired-end mode, perform SW to rescue missing hits only but do not try to find hits that fit a proper pair;  –a: Output all alignments for single-end or unpaired paired-end reads. These alignments will be flagged as secondary alignments.
+	Samtools view to make bam files that we can use for GATK and other downstream analyses $ for i in *.sam; do samtools view -q 20 -bt /HcZfUnix_ref/ref.fasta -o ${i%sam}bam $i; done 
+	If you mapped paired reads and did not quality filter bases/reads previously, do so now by adding the q flag (before the other flags) and a mapping quality threshold, e.g., -q 30
+	If you mapped single end and paired end data separately in bwa, merge them now. Use picardtools to merge paired reads.
+	$ picardtools merge out.bam bam1 bam2…  
+	Add readgroups and sort bam with Picard Tools (this is slow) 
+	$ for i in *qual.bam; do java -Xmx2g -jar /home/picard-tools-1.123/picard.jar AddOrReplaceReadGroups INPUT=$i OUTPUT=${i%bam}tag.bam MAX_RECORDS_IN_RAM=1000000 TMP_DIR=$PWD/tmp SO=coordinate RGID=${i%bam} RGLB=1 RGPL=illumina RGPU=1 RGSM=${i%bam}; done
+	RGID=Read Group ID. Currently this is set to the individual, but you could do modern vs ancient or high/low/mid (e.g., in sample names, every second underscore is the RGID). This modifies the bam headers so that they are “tagged” with the read group ID (necessary for downstream analyses).  MAX_RECORDS_IN_RAM is necessary for large files (e.g., over 60 GB); TMP_DIR is necessary if there are limits to the number of files allowed in a directory.
+	This step also sorts by where the reads align in the reference genome.
+	For some reason you cannot add picardtools to your path because it is not C-compiled, so you have to set an environment variable. On our HPC “the module file uses a method similar to the one picard documentation gives to set up an alias called runpicard” (which they have done for us). So the new command is for i in *.bam; do runpicard AddOrReplaceReadGroups INPUT=$i OUTPUT=${i%bam}tag.bam SO=coordinate RGID=${i%bam} RGLB=1 RGPL=illumina RGPU=1 RGSM=${i%bam}; done 
+	Many enormous temp files are created in this step, so if you install yourself on a HPC, you need to add a tmp directory in a location with unlimited storage so they won’t be saved to the compute node. Before my command, I added cd $PBS_O_WORKDIR \ mkdir -p tmp and then in my command before the SO part I added TMP_DIR=$PWD/tmp
+	Mark PCR duplicates with Picard Tools
+	$ for i in *.tag.bam; do java -Xmx16g -jar /picard-tools-1.1/MarkDuplicates.jar INPUT=$i OUTPUT=${i%tag.bam}rmdup.bam MAX_RECORDS_IN_RAM=1000000 METRICS_FILE=${i%tag.bam}rmdup.metrics ASSUME_SORTED=true; done
+	This step removes PCR duplicates. You should look at metrics file for statistics on how many were duplicates, etc. The .tag.bam files are needed in the next step.
+	Index sorted, duplicate-filtered bam with samtools (this creates the .bai file)
+	$ for i in *.rmdup.bam; do samtools index $i; done
+
 GATK objectives: 
 1) realign poorly mapped regions (-take out indels… this extension has to be called .sort.rmdup.intervals)
 2) filter (-remove malformed reads)
