@@ -64,10 +64,10 @@ GATK objectives:
 1) realign poorly mapped regions (-take out indels… this extension has to be called .sort.rmdup.intervals)
 2) filter (-remove malformed reads)
 3) genotype (-generates .vcf file; then we use vcf tools to see how many SNPs & further subset/analyze) 
-	Note: GATK on our HPC behaves strangely sometimes. In versions 3.5 & 3.7, if the program doesn’t recognize the reference it won’t throw a useful error, but the logfile will say Picked up _JAVA_OPTIONS: -XX:+UseSerialGC (which is normal & also output when the program runs) & the program won’t run. In versions 4, the program will run but not to completion. Also, instead of the typical java -jar GenomeAnalysisTK.jar we use locally, on the HPC we invoke gatk with ‘rungatk’ (it creates the necessary alias).
-	GATK HaplotypeCaller—this will create your initial vcf file; .bai files need to be in the same folder
-o	$ ./gatk HaplotypeCaller -R /path/to/ref /ref.fasta -I RSF01.rmdup.bam -I PSVL11.rmdup.bam -O gupd_rangewide_date.vcf --min_base_quality_score 20 
-o	If you have many files, you don’t want to type them all (I don’t remember why you can’t use *). A script called ‘HaploCaller.sh’ will automate the process for each file in a folder:
+	Note: GATK on our HPC behaves strangely sometimes. In versions 3.5 & 3.7, if the program doesn’t recognize the reference it won’t throw a useful error, but the logfile will say Picked up _JAVA_OPTIONS: -XX:+UseSerialGC (which is normal & also output when the program runs) & the program won’t run. In versions 4, the program will run but not to completion. Also, instead of the typical java -jar GenomeAnalysisTK.jar we use locally, on the HPC we invoke gatk with ‘rungatk’ (it creates the necessary alias).
+	GATK HaplotypeCaller—this will create your initial vcf file; .bai files need to be in the same folder
+	$ ./gatk HaplotypeCaller -R /path/to/ref /ref.fasta -I RSF01.rmdup.bam -I PSVL11.rmdup.bam -O gupd_rangewide_date.vcf --min_base_quality_score 20 
+	If you have many files, you don’t want to type them all (I don’t remember why you can’t use *). A script called ‘HaploCaller.sh’ will automate the process for each file in a folder:
 #!/bin/bash
 
 CUR=pwd
@@ -77,7 +77,7 @@ GATKCOMMAND=/path/gatk-4.1.2.0/gatk
  
 COMMAND="${GATKCOMMAND} HaplotypeCaller -R ${REFERENCE}.fasta --java-options -XX:+UseSerialGC"
 
-# find all the rmdup.bams we have
+# find all the rmdup.bams we have #
 for FILE in /path/*_rmdup.bam; 
 do 
 COMMAND="${COMMAND} -I ${FILE}"
@@ -86,43 +86,44 @@ done
 COMMAND="${COMMAND} -O GUPD_10rangewide_051519.vcf --min-base-quality-score 30"
 
 $COMMAND
-	You should do additional quality filtering and manipulation during/after these GATK steps.
-o	some options are: –sn specifies particular samples, so if you want to just do this to 2 samples you list them individually (-sn SAMPLE_A –sn SAMPLE_B);  select any sample that matches an expression and sites where the QD annotation is >10: -se ‘SAMPLE.+PARC’ –select “QD > 10.0”
-	Using the reference (-R), select only SNPs & MNPs that are multi-allelic (i.e., SNPs w/ >1 allele listed in the ALT column), which will get rid of indels automatically, and exclude non-variant loci
-o	/gatk-4.x/gatk SelectVariants --variant input.vcf -R /path/to/ref.fasta --output output.vcf -select-type SNP -select-type MNP --exclude-non-variants true --set-filtered-gt-to-nocall true
-	GATK defines a SNP as a base that is different from the reference, so you’ll get bases that are SNPs in your dataset but also bases that are fixed in your dataset but differ from the reference. Genotypes are 0/1 if homozygous for reference/alternate allele, 1/1 if homozygous for alternate allele,  ./. if missing
-	Now we can filter to get rid of low quality samples, etc.—using GATK and then vcftools
-	GATK VariantFiltration (SelectVariants removes variants not passing criteria; VariantFiltration keeps & flags the variants not passing filters, & adds annotations in the filter fields):
-	quality filter based on global & per-genotype criteria (QUAL=quality, DP=depth of coverage (in INFO field); QD = qual / depth; FS = Strand bias estimated using Fisher Exact Test; MQRankSum = mapping quality rank sum test; AD=allelic depth, DP=genotype depth of coverage (in the FORMAT field); etc. This will throw warnings b/c many of these flags are evaluated only at heterozygotes. To avoid getting a million (literally) warnings that "RPRS does not exist", add the argument 2>/dev/null to the end in order to redirect warnings to an output file. So: /gatk-4.0.1.2/gatk VariantFiltration --variant AKEK_rawSNPs.vcf --output AKEK_rawSNPsQC.vcf -R HcZf_reference/HcZf.fasta --filter-name "ReadPosRankSumFilter" --filter-expression "ReadPosRankSum < -8.0" --filter-name "MQRankSumFilter" --filter-expression "MQRankSum < -12.5" --filter-name "FSFilter" --filter-expression " FS > 60.0" --filter-name "QDFilter” --filter-expression "QD < 2.0" --genotype-filter-name "DP4filter" --genotype-filter-expression "DP < 4"  2>/dev/null
-o	I’m not sure if the --genotype-filter-expression parameter works. It didn’t in previous versions, but some things have changed. As of early 2019, there are still lots of genotypes <4, and the mean is also <4
-o	--filterExpression is for the INFO field (global per locus); --genotype-filter-expression is for the FORMAT field (specific genotypes)
-o	MQRankSum “compares the mapping qualities of the reads supporting the reference allele & the alternate allele. A positive value indicates the mapping qualities of the reads supporting the alternate allele are higher than those supporting the reference allele; a negative value means the mapping qualities of the reference allele are higher than those supporting the alternate allele. A value close to zero is best and indicates little difference between mapping qualities.”
-o	One MUST try different values to see which are best. Some documentation here: https://software.broadinstitute.org/gatk/documentation/article.php?id=11069. 
-	and now remove flagged variants /gatk-4.0.1.2/gatk SelectVariants -R pathto/ref.fasta --variant input.vcf --output output.vcf --set-filtered-gt-to-nocall true    
-o	Alternatively to DP filters, to replace CoveredByNSamplesSites, use DiagnoseTargets for bam files 
+
+You should do additional quality filtering and manipulation during/after these GATK steps.
+Some options are: –sn specifies particular samples, so if you want to just do this to 2 samples you list them individually (-sn SAMPLE_A –sn SAMPLE_B);  select any sample that matches an expression and sites where the QD annotation is >10: -se ‘SAMPLE.+PARC’ –select “QD > 10.0”
+Using the reference (-R), select only SNPs & MNPs that are multi-allelic (i.e., SNPs w/ >1 allele listed in the ALT column), which will get rid of indels automatically, and exclude non-variant loci
+	/gatk-4.x/gatk SelectVariants --variant input.vcf -R /path/to/ref.fasta --output output.vcf -select-type SNP -select-type MNP --exclude-non-variants true --set-filtered-gt-to-nocall true
+GATK defines a SNP as a base that is different from the reference, so you’ll get bases that are SNPs in your dataset but also bases that are fixed in your dataset but differ from the reference. Genotypes are 0/1 if homozygous for reference/alternate allele, 1/1 if homozygous for alternate allele,  ./. if missing
+Now we can filter to get rid of low quality samples, etc.—using GATK and then vcftools
+GATK VariantFiltration (SelectVariants removes variants not passing criteria; VariantFiltration keeps & flags the variants not passing filters, & adds annotations in the filter fields):
+	quality filter based on global & per-genotype criteria (QUAL=quality, DP=depth of coverage (in INFO field); QD = qual / depth; FS = Strand bias estimated using Fisher Exact Test; MQRankSum = mapping quality rank sum test; AD=allelic depth, DP=genotype depth of coverage (in the FORMAT field); etc. This will throw warnings b/c many of these flags are evaluated only at heterozygotes. To avoid getting a million (literally) warnings that "RPRS does not exist", add the argument 2>/dev/null to the end in order to redirect warnings to an output file. So: /gatk-4.0.1.2/gatk VariantFiltration --variant AKEK_rawSNPs.vcf --output AKEK_rawSNPsQC.vcf -R HcZf_reference/HcZf.fasta --filter-name "ReadPosRankSumFilter" --filter-expression "ReadPosRankSum < -8.0" --filter-name "MQRankSumFilter" --filter-expression "MQRankSum < -12.5" --filter-name "FSFilter" --filter-expression " FS > 60.0" --filter-name "QDFilter” --filter-expression "QD < 2.0" --genotype-filter-name "DP4filter" --genotype-filter-expression "DP < 4"  2>/dev/null
+	I’m not sure if the --genotype-filter-expression parameter works as I intend. It didn’t in previous versions, but some things have changed. As of early 2019, there are still lots of genotypes <4, and the mean is also <4
+	--filterExpression is for the INFO field (global per locus); --genotype-filter-expression is for the FORMAT field (specific genotypes)
+	MQRankSum “compares the mapping qualities of the reads supporting the reference allele & the alternate allele. A positive value indicates the mapping qualities of the reads supporting the alternate allele are higher than those supporting the reference allele; a negative value means the mapping qualities of the reference allele are higher than those supporting the alternate allele. A value close to zero is best and indicates little difference between mapping qualities.”
+One MUST try different values to see which are best. Some documentation here: https://software.broadinstitute.org/gatk/documentation/article.php?id=11069. 
+And now remove flagged variants /gatk-4.0.1.2/gatk SelectVariants -R pathto/ref.fasta --variant input.vcf --output output.vcf --set-filtered-gt-to-nocall true    
+Alternatively to DP filters, to replace CoveredByNSamplesSites, use DiagnoseTargets for bam files 
 
 Filtering options for SNPs:
-	Suppose I want to select all of the sites where sample NA1287 is homozygous-reference. This can be accomplished by assessing the underlying VariantContext as follows: ./gatk SelectVariants -R b37/human_g1k_v37.fasta --variant my.vcf -select ‘vc.getGenotype("NA1287").isHomRef()’
-	We have put in convenience methods so that one can now filter out hets (isHet == 1), refs (isHomRef == 1), or homs (isHomVar == 1).  For hets you can filter over all sample genotypes using something like 'GT == 0/1'.
-	GATK SelectVariants to grab just the variants within a certain region
-o	$ ./gatk –R /path/to/ref ref.fasta SelectVariants --variant input.vcf –O output.vcf –L my.intervals
-o	You first need to create a file my.intervals with one interval per line in this format:
-o		-chr1:from-to
-o		-chrx:from-to
-o		etc.
-	vcf-stats will give you general statistics on the run (how many heterozygotes per site, etc): $ vcf-stats amakihi_file.vcf > amakihi.stats.txt (no need to type full path to vcftools). BUT:
-o	Vcftools uses its own perl, so you might get errors about vcf.pm. The fix: “For running the Perl scripts, the PERL5LIB environment variable must be set to include the Vcf.pm module” so in .bash_profile, add ‘export PERL5LIB=./vcftools_0.1.12b/perl’.  Alternatively, you can simply type this into the command line and then run the vcf-stats or query.
-	vcftools --vcf file.vcf --out output_prefix [filtering options] [output options]  
-o	you can subset data (by chrom or individual), analyze (Fst, HWE and more), and convert files here
-o	The first thing you may want to do is remove all sites that didn’t pass all filters. You can do this with vcftools --vcf infile.vcf --recode --remove-filtered-all (or --remove-filtered-geno-all) --out output_prefix 
-o	If you have known family groups, it's a good idea to remove the SNPs that do not follow Mendelian inheritance patterns (typically 5 - 10% of SNPs). You can do this with a built-in tool in vcftools. I created a vcf that was just for the individuals in the family group, find and output loci that violated Mendelian assumptions, and used that locus list to exclude loci from my final vcf with all individuals. I think this requires an older version of vcftools?  $ vcftools-master/ cpp/vcftools --vcf amakihiN9_famgroup.recode.vcf --out family_group --mendel amakihi_familygroup_80pct_cut.ped where .ped is the file giving family relationships.
-o	Select only the sites matching our baits: $ /path/to/vcftools/bin/vcftools --vcf input_file.vcf --bed bedfile.bed --out out_prefix --recode (if you have a list of sites instead of a bed file of baits, use --positions SNP.sites instead)
-o	Filter for minor allele frequency so that you’re not picking up artifacts: $ /path/to/vcftools/bin/vcftools --vcf input_file.vcf --maf 0.1 --out outfile_prefix
-o	Note: 0.1 is a standard threshold, but this still caused some artifacts in my data (missingness of indivs was related to PC scores even in a PCA with a complete dataset), maybe suggesting that indivs w/ maf=0.2 at lots of loci are incorrectly genotyped
-o	Remove individuals that were sequenced poorly, as they will significantly reduce the number of loci in analyses if kept in the dataset: $ /vcftools/bin/vcftools --vcf input.vcf --missing-indv --out outfile_prefix; then make a list of individuals to discard based on your criteria, followed by $ /path/to/vcftools/bin/vcftools --vcf input_file.vcf --remove indivs_to_remove.txt --recode --out prevfile_50pctind
-o	Filter missing data with vcftools: $ /path/to/vcftools/bin/vcftools --vcf input_file.vcf --recode --max-missing 0.8 --out outfile_prefix (the max-missing number is kind of backwards: requires floating point # between 0 and 1, where 1 is no missing allowed)
-o	I do several iterative steps here. For instance, first I remove individuals that are missing 75% or more sites; then I remove sites that are genotyped in fewer than 40-50% of individuals.  Next I remove individuals missing 45% or more of the remaining sites, and finally use only those sites that are genotyped in 80-90% of remaining individuals. This seems to maximize the number of individuals and sites in the final file.
-o	It's a good idea to use vcftools' or GATK's vcf validators. $ java -Xmx2g -jar /home/GATK /GenomeAnalysisTK.jar -R /HcZfUnix/HcZfUnix.fasta -T ValidateVariants --variant amakihiN123R1R2_25pcind80pcloc50pc80pc.recode.vcf --validationTypeToExclude CHR_COUNTS --warnOnErrors where CHR_COUNTS are the # AC, AN and throw errors if you've recoded with recode-INFO-all.  You want it to warn, not abort, each time an error is found. 
+	Suppose I want to select all of the sites where sample NA1287 is homozygous-reference. This can be accomplished by assessing the underlying VariantContext as follows: ./gatk SelectVariants -R b37/human_g1k_v37.fasta --variant my.vcf -select ‘vc.getGenotype("NA1287").isHomRef()’
+	We have put in convenience methods so that one can now filter out hets (isHet == 1), refs (isHomRef == 1), or homs (isHomVar == 1).  For hets you can filter over all sample genotypes using something like 'GT == 0/1'.
+	GATK SelectVariants to grab just the variants within a certain region
+	$ ./gatk –R /path/to/ref ref.fasta SelectVariants --variant input.vcf –O output.vcf –L my.intervals
+	You first need to create a file my.intervals with one interval per line in this format:
+		-chr1:from-to
+		-chrx:from-to
+		etc.
+	vcf-stats will give you general statistics on the run (how many heterozygotes per site, etc): $ vcf-stats amakihi_file.vcf > amakihi.stats.txt (no need to type full path to vcftools). BUT:
+	Vcftools uses its own perl, so you might get errors about vcf.pm. The fix: “For running the Perl scripts, the PERL5LIB environment variable must be set to include the Vcf.pm module” so in .bash_profile, add ‘export PERL5LIB=./vcftools_0.1.12b/perl’.  Alternatively, you can simply type this into the command line and then run the vcf-stats or query.
+	vcftools --vcf file.vcf --out output_prefix [filtering options] [output options]  
+	you can subset data (by chrom or individual), analyze (Fst, HWE and more), and convert files here
+	The first thing you may want to do is remove all sites that didn’t pass all filters. You can do this with vcftools --vcf infile.vcf --recode --remove-filtered-all (or --remove-filtered-geno-all) --out output_prefix 
+	If you have known family groups, it's a good idea to remove the SNPs that do not follow Mendelian inheritance patterns (typically 5 - 10% of SNPs). You can do this with a built-in tool in vcftools. I created a vcf that was just for the individuals in the family group, find and output loci that violated Mendelian assumptions, and used that locus list to exclude loci from my final vcf with all individuals. I think this requires an older version of vcftools?  $ vcftools-master/ cpp/vcftools --vcf amakihiN9_famgroup.recode.vcf --out family_group --mendel amakihi_familygroup_80pct_cut.ped where .ped is the file giving family relationships.
+	Select only the sites matching our baits: $ /path/to/vcftools/bin/vcftools --vcf input_file.vcf --bed bedfile.bed --out out_prefix --recode (if you have a list of sites instead of a bed file of baits, use --positions SNP.sites instead)
+	Filter for minor allele frequency so that you’re not picking up artifacts: $ /path/to/vcftools/bin/vcftools --vcf input_file.vcf --maf 0.1 --out outfile_prefix
+	Note: 0.1 is a standard threshold, but this still caused some artifacts in my data (missingness of indivs was related to PC scores even in a PCA with a complete dataset), maybe suggesting that indivs w/ maf=0.2 at lots of loci are incorrectly genotyped
+	Remove individuals that were sequenced poorly, as they will significantly reduce the number of loci in analyses if kept in the dataset: $ /vcftools/bin/vcftools --vcf input.vcf --missing-indv --out outfile_prefix; then make a list of individuals to discard based on your criteria, followed by $ /path/to/vcftools/bin/vcftools --vcf input_file.vcf --remove indivs_to_remove.txt --recode --out prevfile_50pctind
+	Filter missing data with vcftools: $ /path/to/vcftools/bin/vcftools --vcf input_file.vcf --recode --max-missing 0.8 --out outfile_prefix (the max-missing number is kind of backwards: requires floating point # between 0 and 1, where 1 is no missing allowed)
+	I do several iterative steps here. For instance, first I remove individuals that are missing 75% or more sites; then I remove sites that are genotyped in fewer than 40-50% of individuals.  Next I remove individuals missing 45% or more of the remaining sites, and finally use only those sites that are genotyped in 80-90% of remaining individuals. This seems to maximize the number of individuals and sites in the final file.
+	It's a good idea to use vcftools' or GATK's vcf validators. $ java -Xmx2g -jar /home/GATK /GenomeAnalysisTK.jar -R /HcZfUnix/HcZfUnix.fasta -T ValidateVariants --variant amakihiN123R1R2_25pcind80pcloc50pc80pc.recode.vcf --validationTypeToExclude CHR_COUNTS --warnOnErrors where CHR_COUNTS are the # AC, AN and throw errors if you've recoded with recode-INFO-all.  You want it to warn, not abort, each time an error is found. 
 
 END OF SNP PROCESSING SECTION; BEGINNING OF SNP ANALYSIS SECTION
 	BaitsTools (github.com/campanam/BaitsTools) to design probes for hybridization capture
