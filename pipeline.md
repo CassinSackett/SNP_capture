@@ -59,7 +59,7 @@ GATKCOMMAND=/path/gatk-4.1.2.0/gatk
  
 COMMAND="${GATKCOMMAND} HaplotypeCaller -R ${REFERENCE}.fasta --java-options -XX:+UseSerialGC"
 
-# find all the rmdup.bams we have #
+find all the rmdup.bams we have 
 for FILE in /path/*_rmdup.bam; 
 do 
 COMMAND="${COMMAND} -I ${FILE}"
@@ -70,17 +70,28 @@ COMMAND="${COMMAND} -O GUPD_10rangewide_051519.vcf --min-base-quality-score 30"
 $COMMAND
 
 You should do additional quality filtering and manipulation during/after these GATK steps.
+
 Some options are: –sn specifies particular samples, so if you want to just do this to 2 samples you list them individually (-sn SAMPLE_A –sn SAMPLE_B);  select any sample that matches an expression and sites where the QD annotation is >10: -se ‘SAMPLE.+PARC’ –select “QD > 10.0”
+
 Using the reference (-R), select only SNPs & MNPs that are multi-allelic (i.e., SNPs w/ >1 allele listed in the ALT column), which will get rid of indels automatically, and exclude non-variant loci
 	/gatk-4.x/gatk SelectVariants --variant input.vcf -R /path/to/ref.fasta --output output.vcf -select-type SNP -select-type MNP --exclude-non-variants true --set-filtered-gt-to-nocall true
+	
 GATK defines a SNP as a base that is different from the reference, so you’ll get bases that are SNPs in your dataset but also bases that are fixed in your dataset but differ from the reference. Genotypes are 0/1 if homozygous for reference/alternate allele, 1/1 if homozygous for alternate allele,  ./. if missing
-Now we can filter to get rid of low quality samples, etc.—using GATK and then vcftools
+
+Now we can filter to get rid of low quality samples, etc. using GATK and then vcftools
+
 GATK VariantFiltration (SelectVariants removes variants not passing criteria; VariantFiltration keeps & flags the variants not passing filters, & adds annotations in the filter fields):
-	quality filter based on global & per-genotype criteria (QUAL=quality, DP=depth of coverage (in INFO field); QD = qual / depth; FS = Strand bias estimated using Fisher Exact Test; MQRankSum = mapping quality rank sum test; AD=allelic depth, DP=genotype depth of coverage (in the FORMAT field); etc. This will throw warnings b/c many of these flags are evaluated only at heterozygotes. To avoid getting a million (literally) warnings that "RPRS does not exist", add the argument 2>/dev/null to the end in order to redirect warnings to an output file. So: /gatk-4.0.1.2/gatk VariantFiltration --variant AKEK_rawSNPs.vcf --output AKEK_rawSNPsQC.vcf -R HcZf_reference/HcZf.fasta --filter-name "ReadPosRankSumFilter" --filter-expression "ReadPosRankSum < -8.0" --filter-name "MQRankSumFilter" --filter-expression "MQRankSum < -12.5" --filter-name "FSFilter" --filter-expression " FS > 60.0" --filter-name "QDFilter” --filter-expression "QD < 2.0" --genotype-filter-name "DP4filter" --genotype-filter-expression "DP < 4"  2>/dev/null
-	I’m not sure if the --genotype-filter-expression parameter works as I intend. It didn’t in previous versions, but some things have changed. As of early 2019, there are still lots of genotypes <4, and the mean is also <4
-	--filterExpression is for the INFO field (global per locus); --genotype-filter-expression is for the FORMAT field (specific genotypes)
-	MQRankSum “compares the mapping qualities of the reads supporting the reference allele & the alternate allele. A positive value indicates the mapping qualities of the reads supporting the alternate allele are higher than those supporting the reference allele; a negative value means the mapping qualities of the reference allele are higher than those supporting the alternate allele. A value close to zero is best and indicates little difference between mapping qualities.”
+
+quality filter based on global & per-genotype criteria (QUAL=quality, DP=depth of coverage (in INFO field); QD = qual / depth; FS = Strand bias estimated using Fisher Exact Test; MQRankSum = mapping quality rank sum test; AD=allelic depth, DP=genotype depth of coverage (in the FORMAT field); etc. This will throw warnings b/c many of these flags are evaluated only at heterozygotes. To avoid getting a million (literally) warnings that "RPRS does not exist", add the argument 2>/dev/null to the end in order to redirect warnings to an output file. So: 
+
+/gatk-4.0.1.2/gatk VariantFiltration --variant AKEK_rawSNPs.vcf --output AKEK_rawSNPsQC.vcf -R HcZf_reference/HcZf.fasta --filter-name "ReadPosRankSumFilter" --filter-expression "ReadPosRankSum < -8.0" --filter-name "MQRankSumFilter" --filter-expression "MQRankSum < -12.5" --filter-name "FSFilter" --filter-expression " FS > 60.0" --filter-name "QDFilter” --filter-expression "QD < 2.0" --genotype-filter-name "DP4filter" --genotype-filter-expression "DP < 4"  2>/dev/null
+	
+Note - I’m not sure if the --genotype-filter-expression parameter works as I intend. It didn’t in previous versions, but some things have changed. As of early 2019, there are still lots of genotypes <4, and the mean is also <4
+
+--filterExpression is for the INFO field (global per locus); --genotype-filter-expression is for the FORMAT field (specific genotypes)
+MQRankSum “compares the mapping qualities of the reads supporting the reference allele & the alternate allele. A positive value indicates the mapping qualities of the reads supporting the alternate allele are higher than those supporting the reference allele; a negative value means the mapping qualities of the reference allele are higher than those supporting the alternate allele. A value close to zero is best and indicates little difference between mapping qualities.”
 One MUST try different values to see which are best. Some documentation here: https://software.broadinstitute.org/gatk/documentation/article.php?id=11069. 
+
 And now remove flagged variants /gatk-4.0.1.2/gatk SelectVariants -R pathto/ref.fasta --variant input.vcf --output output.vcf --set-filtered-gt-to-nocall true    
 Alternatively to DP filters, to replace CoveredByNSamplesSites, use DiagnoseTargets for bam files 
 
