@@ -96,20 +96,28 @@ And now remove flagged variants /gatk-4.0.1.2/gatk SelectVariants -R pathto/ref.
 Alternatively to DP filters, to replace CoveredByNSamplesSites, use DiagnoseTargets for bam files 
 
 Filtering options for SNPs:
-	Suppose I want to select all of the sites where sample NA1287 is homozygous-reference. This can be accomplished by assessing the underlying VariantContext as follows: ./gatk SelectVariants -R b37/human_g1k_v37.fasta --variant my.vcf -select ‘vc.getGenotype("NA1287").isHomRef()’
-	We have put in convenience methods so that one can now filter out hets (isHet == 1), refs (isHomRef == 1), or homs (isHomVar == 1).  For hets you can filter over all sample genotypes using something like 'GT == 0/1'.
-	GATK SelectVariants to grab just the variants within a certain region
-	$ ./gatk –R /path/to/ref ref.fasta SelectVariants --variant input.vcf –O output.vcf –L my.intervals
-	You first need to create a file my.intervals with one interval per line in this format:
+
+Suppose I want to select all of the sites where sample NA1287 is homozygous-reference. This can be accomplished by assessing the underlying VariantContext as follows: ./gatk SelectVariants -R b37/human_g1k_v37.fasta --variant my.vcf -select ‘vc.getGenotype("NA1287").isHomRef()’
+
+In GATK one can now filter out hets (isHet == 1), refs (isHomRef == 1), or homs (isHomVar == 1).  For hets you can filter over all sample genotypes using something like 'GT == 0/1'.
+
+GATK SelectVariants to grab just the variants within a certain region
+$ ./gatk –R /path/to/ref ref.fasta SelectVariants --variant input.vcf –O output.vcf –L my.intervals
+You first need to create a file my.intervals with one interval per line in this format:
 		-chr1:from-to
 		-chrx:from-to
 		etc.
-	vcf-stats will give you general statistics on the run (how many heterozygotes per site, etc): $ vcf-stats amakihi_file.vcf > amakihi.stats.txt (no need to type full path to vcftools). BUT:
-	Vcftools uses its own perl, so you might get errors about vcf.pm. The fix: “For running the Perl scripts, the PERL5LIB environment variable must be set to include the Vcf.pm module” so in .bash_profile, add ‘export PERL5LIB=./vcftools_0.1.12b/perl’.  Alternatively, you can simply type this into the command line and then run the vcf-stats or query.
-	vcftools --vcf file.vcf --out output_prefix [filtering options] [output options]  
-	you can subset data (by chrom or individual), analyze (Fst, HWE and more), and convert files here
-	The first thing you may want to do is remove all sites that didn’t pass all filters. You can do this with vcftools --vcf infile.vcf --recode --remove-filtered-all (or --remove-filtered-geno-all) --out output_prefix 
-	If you have known family groups, it's a good idea to remove the SNPs that do not follow Mendelian inheritance patterns (typically 5 - 10% of SNPs). You can do this with a built-in tool in vcftools. I created a vcf that was just for the individuals in the family group, find and output loci that violated Mendelian assumptions, and used that locus list to exclude loci from my final vcf with all individuals. I think this requires an older version of vcftools?  $ vcftools-master/ cpp/vcftools --vcf amakihiN9_famgroup.recode.vcf --out family_group --mendel amakihi_familygroup_80pct_cut.ped where .ped is the file giving family relationships.
+
+vcf-stats will give you general statistics on the run (how many heterozygotes per site, etc): $ vcf-stats amakihi_file.vcf > amakihi.stats.txt (no need to type full path to vcftools). BUT:
+Vcftools uses its own perl, so you might get errors about vcf.pm. The fix: “For running the Perl scripts, the PERL5LIB environment variable must be set to include the Vcf.pm module” so in .bash_profile, add ‘export PERL5LIB=./vcftools_0.1.12b/perl’.  Alternatively, you can simply type this into the command line and then run the vcf-stats or query.
+
+vcftools --vcf file.vcf --out output_prefix [filtering options] [output options]  
+
+you can subset data (by chrom or individual), analyze (Fst, HWE and more), and convert files here
+
+The first thing you may want to do is remove all sites that didn’t pass all filters. You can do this with vcftools --vcf infile.vcf --recode --remove-filtered-all (or --remove-filtered-geno-all) --out output_prefix 
+
+If you have known family groups, it's a good idea to remove the SNPs that do not follow Mendelian inheritance patterns (typically 5 - 10% of SNPs). You can do this with a built-in tool in vcftools. I created a vcf that was just for the individuals in the family group, find and output loci that violated Mendelian assumptions, and used that locus list to exclude loci from my final vcf with all individuals. I think this requires an older version of vcftools?  $ vcftools-master/ cpp/vcftools --vcf amakihiN9_famgroup.recode.vcf --out family_group --mendel amakihi_familygroup_80pct_cut.ped where .ped is the file giving family relationships.
 	Select only the sites matching our baits: $ /path/to/vcftools/bin/vcftools --vcf input_file.vcf --bed bedfile.bed --out out_prefix --recode (if you have a list of sites instead of a bed file of baits, use --positions SNP.sites instead)
 	Filter for minor allele frequency so that you’re not picking up artifacts: $ /path/to/vcftools/bin/vcftools --vcf input_file.vcf --maf 0.1 --out outfile_prefix
 	Note: 0.1 is a standard threshold, but this still caused some artifacts in my data (missingness of indivs was related to PC scores even in a PCA with a complete dataset), maybe suggesting that indivs w/ maf=0.2 at lots of loci are incorrectly genotyped
