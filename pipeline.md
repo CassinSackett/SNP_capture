@@ -117,14 +117,24 @@ you can subset data (by chrom or individual), analyze (Fst, HWE and more), and c
 
 The first thing you may want to do is remove all sites that didn’t pass all filters. You can do this with vcftools --vcf infile.vcf --recode --remove-filtered-all (or --remove-filtered-geno-all) --out output_prefix 
 
-If you have known family groups, it's a good idea to remove the SNPs that do not follow Mendelian inheritance patterns (typically 5 - 10% of SNPs). You can do this with a built-in tool in vcftools. I created a vcf that was just for the individuals in the family group, find and output loci that violated Mendelian assumptions, and used that locus list to exclude loci from my final vcf with all individuals. I think this requires an older version of vcftools?  $ vcftools-master/ cpp/vcftools --vcf amakihiN9_famgroup.recode.vcf --out family_group --mendel amakihi_familygroup_80pct_cut.ped where .ped is the file giving family relationships.
-	Select only the sites matching our baits: $ /path/to/vcftools/bin/vcftools --vcf input_file.vcf --bed bedfile.bed --out out_prefix --recode (if you have a list of sites instead of a bed file of baits, use --positions SNP.sites instead)
-	Filter for minor allele frequency so that you’re not picking up artifacts: $ /path/to/vcftools/bin/vcftools --vcf input_file.vcf --maf 0.1 --out outfile_prefix
-	Note: 0.1 is a standard threshold, but this still caused some artifacts in my data (missingness of indivs was related to PC scores even in a PCA with a complete dataset), maybe suggesting that indivs w/ maf=0.2 at lots of loci are incorrectly genotyped
-	Remove individuals that were sequenced poorly, as they will significantly reduce the number of loci in analyses if kept in the dataset: $ /vcftools/bin/vcftools --vcf input.vcf --missing-indv --out outfile_prefix; then make a list of individuals to discard based on your criteria, followed by $ /path/to/vcftools/bin/vcftools --vcf input_file.vcf --remove indivs_to_remove.txt --recode --out prevfile_50pctind
-	Filter missing data with vcftools: $ /path/to/vcftools/bin/vcftools --vcf input_file.vcf --recode --max-missing 0.8 --out outfile_prefix (the max-missing number is kind of backwards: requires floating point # between 0 and 1, where 1 is no missing allowed)
-	I do several iterative steps here. For instance, first I remove individuals that are missing 75% or more sites; then I remove sites that are genotyped in fewer than 40-50% of individuals.  Next I remove individuals missing 45% or more of the remaining sites, and finally use only those sites that are genotyped in 80-90% of remaining individuals. This seems to maximize the number of individuals and sites in the final file.
-	It's a good idea to use vcftools' or GATK's vcf validators. $ java -Xmx2g -jar /home/GATK /GenomeAnalysisTK.jar -R /HcZfUnix/HcZfUnix.fasta -T ValidateVariants --variant amakihiN123R1R2_25pcind80pcloc50pc80pc.recode.vcf --validationTypeToExclude CHR_COUNTS --warnOnErrors where CHR_COUNTS are the # AC, AN and throw errors if you've recoded with recode-INFO-all.  You want it to warn, not abort, each time an error is found. 
+If you have known family groups, it's a good idea to remove the SNPs that do not follow Mendelian inheritance patterns (typically 5 - 10% of SNPs). You can do this with a built-in tool in vcftools. I created a vcf that was just for the individuals in the family group, find and output loci that violated Mendelian assumptions, and used that locus list to exclude loci from my final vcf with all individuals. 
+$ vcftools-master/ cpp/vcftools --vcf amakihiN9_famgroup.recode.vcf --out family_group --mendel amakihi_familygroup_80pct_cut.ped where .ped is the file giving family relationships.
+	
+Select only the sites matching our baits
+$ /path/to/vcftools/bin/vcftools --vcf input_file.vcf --bed bedfile.bed --out out_prefix --recode (if you have a list of sites instead of a bed file of baits, use --positions SNP.sites instead)
+	
+Filter for minor allele frequency so that you’re not picking up artifacts: $ /path/to/vcftools/bin/vcftools --vcf input_file.vcf --maf 0.1 --out outfile_prefix
+
+Remove individuals that were sequenced poorly, as they will significantly reduce the number of loci in analyses if kept in the dataset: 
+$ /vcftools/bin/vcftools --vcf input.vcf --missing-indv --out outfile_prefix; then make a list of individuals to discard based on your criteria, followed by 
+$ /path/to/vcftools/bin/vcftools --vcf input_file.vcf --remove indivs_to_remove.txt --recode --out prevfile_50pctind
+
+Filter missing data with vcftools: 
+$ /path/to/vcftools/bin/vcftools --vcf input_file.vcf --recode --max-missing 0.8 --out outfile_prefix (the max-missing number is kind of backwards: requires floating point # between 0 and 1, where 1 is no missing allowed)
+	
+I do several iterative steps here. For instance, first I remove individuals that are missing 75% or more sites; then I remove sites that are genotyped in fewer than 40-50% of individuals.  Next I remove individuals missing 45% or more of the remaining sites, and finally use only those sites that are genotyped in 80-90% of remaining individuals. This seems to maximize the number of individuals and sites in the final file.
+
+It's a good idea to use vcftools' or GATK's vcf validators. $ java -Xmx2g -jar /home/GATK /GenomeAnalysisTK.jar -R /HcZfUnix/HcZfUnix.fasta -T ValidateVariants --variant amakihiN123R1R2_25pcind80pcloc50pc80pc.recode.vcf --validationTypeToExclude CHR_COUNTS --warnOnErrors where CHR_COUNTS are the # AC, AN and throw errors if you've recoded with recode-INFO-all.  You want it to warn, not abort, each time an error is found. 
 
 END OF SNP PROCESSING SECTION; BEGINNING OF SNP ANALYSIS SECTION
 	BaitsTools (github.com/campanam/BaitsTools) to design probes for hybridization capture
