@@ -149,16 +149,28 @@ To get individual heterozygosity (actually an inbreeding coefficient in this cas
 calculate Fst at each site by creating two popfiles, one with each population, and using /vcftools_0.1.12b/bin/vcftools --vcf amakihiR1DP8.recode.vcf --max-missing 0.9 --weir-fst-pop popfile_high.txt --weir-fst-pop popfile_low.txt --out pop1-pop2
 To remove NA values for sites that are missing data in one pop, create a new file with no NAs: for F in *.weir.fst; do sed -i.bak '/nan/d' $F; done
 
-To calculate Hardy-Weinberg equilibrium at each site, use vcftools first: for i in *recode.vcf; do vcftools --vcf $i --hardy --recode --out ${i%.vcf.recode.vcf}; done . Then you can filter out only the sites that have a significant heterozygote deficit (in this case, column 7) or all sites out of HWE: for i in *SNPs.hwe; do cat $i | awk '{ if ($7 < 0.01) print $0}' > ${i%hwe}sig.hwe; done
-	To find regions of homozygosity in the genome, or “Long Runs Of Homozygosity” (LROH): substitute fst flag for --LROH and needs a specific chromosome to test. Later you can concatenate them all together to find regions consistent across populations. It is helpful to remove inbred individuals first; these are those that have a large number of homozygous regions. You can count the number of occurrences of each indiv in a file with $ grep -o -c indiv_name filename.txt
-	If you want mean nucleotide diversity (in the 3rd column of the *.sites.pi files), you can do this quickly with awk: for i in *80pctloc.sites.pi; do awk '{total += $3} END {print total/NR}' $i > ${i%.sites.pi}.mean.pi; done ('total' is a variable created by adding each element of column 3; then when that is done print the value resulting from dividing that variable by the number of rows) and then you might want to put these in a file for later reference: for i in *80pctloc.mean.pi; do cat $i | awk -F '\t' -v x=$i '{print x "\t" $0}' > $i.named; done and then cat *80pctloc.mean.pi.named > allpops_80pctloc.mean.pi
-	vcf-query to get just the chr, pos and genotype for each sample.  GT is GenoType, and the brackets loop over all samples. This also works on .vcf.gz files.
-o	$ vcf-query –f '%CHROM:%POS\t%REF[\t%GT]\n' amakihi_snponly.vcf > vcf_genotypes.txt 
-o	$ vcf-query –l input.vcf > indivs-list.txt will generate a list of indivs in the order of the vcf file. Add chrom:pos and REF to the beginning of the indiv-list file in 2 lines, and then transpose to create a tab-delimited header file (tr '\n' '\t' < infile > outfile). Concatenate the first vcf-query above (without the –l flag) onto the header (cat headerfile genotypesfile > genotypes_with_header.txt). 
-	bcftools will generate a file of 0s and 1s rather than letters (same command) 
-	Useful tools here are 1) taking the first line of a file (e.g., if you want to copy the header into a new file): $ head -n 1 amakihiN144_gtypes_header.txt > headerfile.txt or 2) deleting everything but the first line in a file (make sure you are saving this to a new file!): sed -i '1!d' unix_file.txt 
-	Generate genotype files for each sample separately: $ for i in {3..23}; do cat 110613_85pcent_genotypes.txt | awk -v x=$i ‘{print $1 “\t” $x}’> “m”$i”_85pcent.txt”; done (Awk uses x but bash uses i, so we are telling awk to treat 'i' like 'x'). **NOTE: the m refers to column number. To re-name them after the 2nd column in the header: $ for i in *_DP9.txt; do d="$(head -1 "$i" | awk '{print $2 "_" $3}').txt"; mv "$i" "$d"; done
-	Generate files of all heterozygous and homozygous sites for each individual and name the files according to the column/header name, use this command with the loren2.awk script below.  for i in {3..146}; do awk -f loren2.awk -v x=$i amakihiN144_gtypes.txt; done 
+To calculate Hardy-Weinberg equilibrium at each site, use vcftools first: for i in *recode.vcf; do vcftools --vcf $i --hardy --recode --out ${i%.vcf.recode.vcf}; done  
+Then you can filter out only the sites that have a significant heterozygote deficit (in this case, column 7) or all sites out of HWE: for i in *SNPs.hwe; do cat $i | awk '{ if ($7 < 0.01) print $0}' > ${i%hwe}sig.hwe; done
+
+To find Long Runs Of Homozygosity (LROH) in the genome, use the --LROH flag. This tool needs a specific chromosome to test. Later you can concatenate them all together to find regions consistent across individuals or populations. It is helpful to remove inbred individuals first; these are those that have a large number of homozygous regions. You can count the number of occurrences of each individual in a file with $ grep -o -c indiv_name filename.txt
+
+If you want mean nucleotide diversity (in the 3rd column of the *.sites.pi files), you can do this quickly with awk: for i in *80pctloc.sites.pi; do awk '{total += $3} END {print total/NR}' $i > ${i%.sites.pi}.mean.pi; done 
+('total' is a variable created by adding each element of column 3; then when that is done print the value resulting from dividing that variable by the number of rows) 
+and then you might want to put these in a file for later reference: for i in *80pctloc.mean.pi; do cat $i | awk -F '\t' -v x=$i '{print x "\t" $0}' > $i.named; done
+and then cat *80pctloc.mean.pi.named > allpops_80pctloc.mean.pi
+
+vcf-query to get just the chr, pos and genotype for each sample.  GT is GenoType, and the brackets loop over all samples. This also works on .vcf.gz files.
+vcf-query –f '%CHROM:%POS\t%REF[\t%GT]\n' amakihi_snponly.vcf > vcf_genotypes.txt 
+vcf-query –l input.vcf > indivs-list.txt will generate a list of indivs in the order of the vcf file. Add chrom:pos and REF to the beginning of the indiv-list file in 2 lines, and then transpose to create a tab-delimited header file (tr '\n' '\t' < infile > outfile). Concatenate the first vcf-query above (without the –l flag) onto the header (cat headerfile genotypesfile > genotypes_with_header.txt). 
+
+bcftools will generate a file of 0s and 1s rather than letters (same command) 
+
+Useful tools here are 1) taking the first line of a file (e.g., if you want to copy the header into a new file): $ head -n 1 amakihiN144_gtypes_header.txt > headerfile.txt or 2) deleting everything but the first line in a file (make sure you are saving this to a new file!): sed -i '1!d' unix_file.txt 
+
+Generate genotype files for each sample separately: $ for i in {3..23}; do cat 110613_85pcent_genotypes.txt | awk -v x=$i ‘{print $1 “\t” $x}’> “m”$i”_85pcent.txt”; done (Awk uses x but bash uses i, so we are telling awk to treat 'i' like 'x'). 
+**NOTE: the m refers to column number. To re-name them after the 2nd column in the header: $ for i in *_DP9.txt; do d="$(head -1 "$i" | awk '{print $2 "_" $3}').txt"; mv "$i" "$d"; done**
+
+Generate files of all heterozygous and homozygous sites for each individual and name the files according to the column/header name, use this command with the loren2.awk script below.  for i in {3..146}; do awk -f loren2.awk -v x=$i amakihiN144_gtypes.txt; done 
             
 BEGIN{
         FS="\t"
