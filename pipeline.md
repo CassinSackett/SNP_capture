@@ -186,13 +186,20 @@ split($x, a, "/"); if (a[1] == a[2]) print ($1 "\t" $2 "\t" $x) >> (name ".homs"
 END {
 }
 
-	Edit the script so it applies to heterozygotes (change instances of “.homs” to “.hets”; change a[1]==a[2] to a[1]!=a[2]); run it again. This will produce a het file & a hom file for each individual. 
-	However, this is going to treat all missing genotypes as homozygous because of the ./. syntax, so you have to create a new file with just the real homozygotes: for i in *.trim..homs; do grep -v "\./\." $i > ${i%.homs}nomissing.homs; done
-	Now we want to convert these to bed files so we can bin SNPs. $ for i in *hets.txt; do cat $i | awk -F '\t' '{split($1, a, ":"); print a[1] "\t" a[2] "\t" a[2]+1 "\t" $2 "\t" $3}' > "${i%txt}bed"; done –this generates a .bed file of het sites for each individual; do the same for homs. This creates bins of 1 bp (a[2]+1); can create bins of any size.
-	Use bedtools with 80k_not_baits_unique_80bp.bed to get coverage of baits by samples. Bedtools converts bam to bed (here we figure out how many of our SNPs match up with the baits)
-	You can use sed -i ‘1d’ file.txt to remove the first line of a file (where -i tells it to modify the file rather than printing to screen) (and on Mac OSX you need ‘’ after the -i), so all together $ for i in *hets.bed; do sed -i '' -e '1d' $i; done
-	for i in *hets.bed; do coverageBed -a $i -b 100k_bins.bed > ${i%bed}cov; done –this generates a .cov file (coverage) of heterozygous sites for each individual. 100k_bins.bed is a file w/ 100k bp intervals in which the SNP sites will be counted (the coverage of SNPs in an interval). You will get errors if any of the files is empty (e.g., if an individual has 0 het sites)
-o	So you move from your 2 bed files, which have all hets and all homs, to 2 cov (coverage) files in the 100k_bins step above.  The file format will be: 
+Edit the script so it applies to heterozygotes (change instances of “.homs” to “.hets”; change a[1]==a[2] to a[1]!=a[2]); run it again. This will produce a het file & a hom file for each individual. 
+
+However, this is going to treat all missing genotypes as homozygous because of the ./. syntax, so you have to create a new file with just the real homozygotes: for i in *.trim.homs; do grep -v "\./\." $i > ${i%homs}nomissing.homs; done
+
+Now we want to convert these to bed files so we can bin SNPs. $ for i in *hets.txt; do cat $i | awk -F '\t' '{split($1, a, ":"); print a[1] "\t" a[2] "\t" a[2]+1 "\t" $2 "\t" $3}' > "${i%txt}bed"; done –this generates a .bed file of het sites for each individual; do the same for homs. This creates bins of 1 bp (a[2]+1), but we can create bins of any size.
+
+Use bedtools with 80k_not_baits_unique_80bp.bed to get coverage of baits by samples. Bedtools converts bam to bed (here we figure out how many of our SNPs match up with the baits)
+
+You can use sed -i ‘1d’ file.txt to remove the first line of a file (where -i tells it to modify the file rather than printing to screen) (and on Mac OSX you need ‘’ after the -i), so all together $ for i in *hets.bed; do sed -i '' -e '1d' $i; done
+
+for i in *hets.bed; do coverageBed -a $i -b 100k_bins.bed > ${i%bed}cov; done 
+–this generates a .cov file (coverage) of heterozygous sites for each individual. 100k_bins.bed is a file w/ 100k bp intervals in which the SNP sites will be counted (the coverage of SNPs in an interval). You will get errors if any of the files is empty (e.g., if an individual has 0 het sites)
+
+So you move from your 2 bed files, which have all hets and all homs, to 2 cov (coverage) files in the 100k_bins step above.  The file format will be: 
 chrom#	start bp	end bp	     0	0	10000		0.00000
 where						#hets	in each 100kb region
 The position along chromosome is the same in the hom and het files.  The positioning part allows you to paste them together and then calculate het/hom ratios.
