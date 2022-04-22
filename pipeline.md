@@ -27,20 +27,30 @@ For unpaired reads $ for i in *qual.fastq; do bwa mem -v 3 -M -a -t 10 path/to/r
 –a: Output all alignments for single-end or unpaired paired-end reads. These alignments will be flagged as secondary alignments.
 	
 Samtools view to make bam files that we can use for GATK and other downstream analyses $ for i in *.sam; do samtools view -q 20 -bt /HcZfUnix_ref/ref.fasta -o ${i%sam}bam $i; done 
-	If you mapped paired reads and did not quality filter bases/reads previously, do so now by adding the q flag (before the other flags) and a mapping quality threshold, e.g., -q 30
-	If you mapped single end and paired end data separately in bwa, merge them now. Use picardtools to merge paired reads.
-	$ picardtools merge out.bam bam1 bam2…  
-	Add readgroups and sort bam with Picard Tools (this is slow) 
-	$ for i in *qual.bam; do java -Xmx2g -jar /home/picard-tools-1.123/picard.jar AddOrReplaceReadGroups INPUT=$i OUTPUT=${i%bam}tag.bam MAX_RECORDS_IN_RAM=1000000 TMP_DIR=$PWD/tmp SO=coordinate RGID=${i%bam} RGLB=1 RGPL=illumina RGPU=1 RGSM=${i%bam}; done
-	RGID=Read Group ID. Currently this is set to the individual, but you could do modern vs ancient or high/low/mid (e.g., in sample names, every second underscore is the RGID). This modifies the bam headers so that they are “tagged” with the read group ID (necessary for downstream analyses).  MAX_RECORDS_IN_RAM is necessary for large files (e.g., over 60 GB); TMP_DIR is necessary if there are limits to the number of files allowed in a directory.
-	This step also sorts by where the reads align in the reference genome.
-	For some reason you cannot add picardtools to your path because it is not C-compiled, so you have to set an environment variable. On our HPC “the module file uses a method similar to the one picard documentation gives to set up an alias called runpicard” (which they have done for us). So the new command is for i in *.bam; do runpicard AddOrReplaceReadGroups INPUT=$i OUTPUT=${i%bam}tag.bam SO=coordinate RGID=${i%bam} RGLB=1 RGPL=illumina RGPU=1 RGSM=${i%bam}; done 
-	Many enormous temp files are created in this step, so if you install yourself on a HPC, you need to add a tmp directory in a location with unlimited storage so they won’t be saved to the compute node. Before my command, I added cd $PBS_O_WORKDIR \ mkdir -p tmp and then in my command before the SO part I added TMP_DIR=$PWD/tmp
-	Mark PCR duplicates with Picard Tools
-	$ for i in *.tag.bam; do java -Xmx16g -jar /picard-tools-1.1/MarkDuplicates.jar INPUT=$i OUTPUT=${i%tag.bam}rmdup.bam MAX_RECORDS_IN_RAM=1000000 METRICS_FILE=${i%tag.bam}rmdup.metrics ASSUME_SORTED=true; done
-	This step removes PCR duplicates. You should look at metrics file for statistics on how many were duplicates, etc. The .tag.bam files are needed in the next step.
-	Index sorted, duplicate-filtered bam with samtools (this creates the .bai file)
-	$ for i in *.rmdup.bam; do samtools index $i; done
+
+If you mapped paired reads and did not quality filter bases/reads previously, do so now by adding the q flag (before the other flags) and a mapping quality threshold, e.g., -q 30
+
+If you mapped single end and paired end data separately in bwa, merge them now. Use picardtools to merge paired reads.
+picardtools merge out.bam bam1 bam2…  
+
+Add readgroups and sort bam with Picard Tools (this is slow) 
+for i in *qual.bam; do java -Xmx2g -jar /home/picard-tools-1.123/picard.jar AddOrReplaceReadGroups INPUT=$i OUTPUT=${i%bam}tag.bam MAX_RECORDS_IN_RAM=1000000 TMP_DIR=$PWD/tmp SO=coordinate RGID=${i%bam} RGLB=1 RGPL=illumina RGPU=1 RGSM=${i%bam}; done
+RGID=Read Group ID. Currently this is set to the individual, but you could do modern vs ancient or high/low/mid (e.g., in sample names, every second underscore is the RGID). 
+This modifies the bam headers so that they are “tagged” with the read group ID (necessary for downstream analyses).  
+MAX_RECORDS_IN_RAM is necessary for large files (e.g., over 60 GB); TMP_DIR is necessary if there are limits to the number of files allowed in a directory.
+
+This step also sorts by where the reads align in the reference genome.
+
+For some reason you cannot add picardtools to your path because it is not C-compiled, so you have to set an environment variable. On our HPC “the module file uses a method similar to the one picard documentation gives to set up an alias called runpicard” (which they have done for us). So the new command is for i in *.bam; do runpicard AddOrReplaceReadGroups INPUT=$i OUTPUT=${i%bam}tag.bam SO=coordinate RGID=${i%bam} RGLB=1 RGPL=illumina RGPU=1 RGSM=${i%bam}; done 
+
+Many enormous temp files are created in this step, so if you install yourself on a HPC, you need to add a tmp directory in a location with unlimited storage so they won’t be saved to the compute node. Before my command, I added cd $PBS_O_WORKDIR \ mkdir -p tmp and then in my command before the SO part I added TMP_DIR=$PWD/tmp
+
+Mark PCR duplicates with Picard Tools
+for i in *.tag.bam; do java -Xmx16g -jar /picard-tools-1.1/MarkDuplicates.jar INPUT=$i OUTPUT=${i%tag.bam}rmdup.bam MAX_RECORDS_IN_RAM=1000000 METRICS_FILE=${i%tag.bam}rmdup.metrics ASSUME_SORTED=true; done
+This step removes PCR duplicates. You should look at metrics file for statistics on how many were duplicates, etc. The .tag.bam files are needed in the next step.
+
+Index sorted, duplicate-filtered bam with samtools (this creates the .bai file)
+for i in *.rmdup.bam; do samtools index $i; done
 
 GATK objectives: 
 1) realign poorly mapped regions (-take out indels… this extension has to be called .sort.rmdup.intervals)
