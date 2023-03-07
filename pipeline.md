@@ -8,7 +8,7 @@ To view on home computer, download html files locally: scp user@12.34:/fq/*.html
 Trim reads using TrimGalore or Trimmomatic (which also clips adapters) or the custom script fastq_trimmer.py in this repository
 for i in /HAAM_Exp/*.fq; do java -jar /Trimmomatic-0.39/trimmomatic-0.39.jar PE $i ${i%1.fq}2.fq -baseout ${i%1.fq} ILLUMINACLIP:/Trimmomatic-0.39/adapters/NexteraPE-PE.fa:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:15 MINLEN:36; done
 
-Compress original fastq files to save space; do one file at a time to avoid gigantic files for i in *.fastq; do gzip ${i%fastq}fastq.gz $i; done
+Compress original fastq files to save space:  for i in *.fastq; do gzip ${i%fastq}fastq.gz $i; done
 
 Run FastQC again to see the effect of quality filtering. Record the number of reads remaining.
 
