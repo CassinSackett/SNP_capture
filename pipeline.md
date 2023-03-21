@@ -56,7 +56,7 @@ I run Trimmomatic in paired-end mode, but it will keep unpaired reads if you wan
 
 module load jdk/1.8.0_262/intel-19.0.5
 
-for i in /work/yourname/*1.fq; do java -jar /project/sackettl/Trimmomatic-0.39/trimmomatic-0.39.jar $i ${i%1.fq}2.fq -baseout ${i%1.fq} ILLUMINACLIP:/project/sackettl/Trimmomatic-0.39/adapters/NexteraPE-PE.fa:2:30:10 LEADING:5 TRAILING:5 SLIDINGWINDOW:4:15 MINLEN:60; done
+for i in /work/yourname/*R1_001.fastq.gz; do java -jar /project/sackettl/Trimmomatic-0.39/trimmomatic-0.39.jar $i ${i%R1.fq}R2.fq -baseout ${i%_R1_001.fastq.gz.fq} ILLUMINACLIP:/project/sackettl/Trimmomatic-0.39/adapters/NexteraPE-PE.fa:2:30:10 LEADING:5 TRAILING:5 SLIDINGWINDOW:4:15 MINLEN:60; done
 ```
 
 #### 1e. Re-run fastqc on the trimmed samples and compare the number of reads before and after quality filtering. 
