@@ -180,6 +180,7 @@ i in *.bam; do runpicard AddOrReplaceReadGroups ...
 
 
 #### 4b. If samples were sequenced on multiple runs or lanes, merge reads now. 
+:warning: If samples are merged now, they cannot be called in the GATK haplocaller. GATK recommends genotyping them separately and then merging. :warning: (I will fix this in the next iteration of this pipeline - for now I did a quick-fix (or a quick-hopefully-fix) by retagging all of the samples with ID=4 instead of using their names/lane info)
  
 All of the .bam files need to be in the same folder for this step.
 ```
@@ -192,8 +193,8 @@ TMP_DIR=$PWD/tmp
 for i in /pdog/*L001.tag.bam; 
 do 
         java -Xmx2g -jar /project/sackettl/picard.jar \
-        MergeSamFiles INPUT=$i -INPUT ${i%L001_tag.bam}L002_tag.bam -INPUT ${i%L001_tag.bam}L007_tag.bam -INPUT ${i%L001_tag.bam}L008_tag.bam \
-        -OUTPUT ${i%L001_tag.bam}.merged.bam -MAX_RECORDS_IN_RAM 1000000 TMP_DIR=$PWD/tmp;
+        MergeSamFiles -INPUT $i -INPUT ${i%L001_tag.bam}L002_tag.bam -INPUT ${i%L001_tag.bam}L007_tag.bam -INPUT ${i%L001_tag.bam}L008_tag.bam \
+        -OUTPUT ${i%L001_tag.bam}.merged.bam -MAX_RECORDS_IN_RAM 1000000 -TMP_DIR $PWD/tmp;
 done 
 
 ```
@@ -242,13 +243,236 @@ The objectives of [GATK](https://gatk.broadinstitute.org/hc/en-us) (**G**enome *
 
 :bulb: GATK on our HPC behaves oddly sometimes. In versions 3.5 & 3.7, if the program doesn't recognize the reference it won't throw a useful error, but the logfile will say ```Picked up _JAVA_OPTIONS: -XX+UseSerialGC``` (which is normal and is also output with other stuff when the program runs) and the program won't run. In versions 4, the program will run but not to completion. Also, instead of the typical java -jar GenomeAnalysisTK.jar we use locally, on the HPC we invoke gatk with 'rungatk' (it creates the necessary alias).
 
-If you have more than a few samples, you will need to create genotype files for each individual (.g.vcf) and then combine them all into one. The first part is done with a tool called HaplotypeCaller. This is memory intensive and takes forever, so it needs to be run with either:
-* a special module called parallel that allows it to run across many nodes efficiently, or
+If you have more than a few samples (or even a few samples with really large files, e.g., >2GB per tagged bam file), you will need to create genotype files for each individual (.g.vcf) and then combine them all into one. The first part is done with a tool called HaplotypeCaller. This is memory intensive and takes forever, so it needs to be run with either:
+* a special module called [GNU parallel](https://www.gnu.org/software/parallel/) that allows it to run across many nodes efficiently, or
 * a special version of the program known as GATK-spark (with Spark being another parallelization tool)
+
+We use GNU parallel.  Scripts for running GATK with parallel were modeled after [those written by the Faircloth lab](https://protocols.faircloth-lab.org/en/latest/protocols-computer/analysis/analysis-gatk-parallel.html). To do so, you need to have two separate files: one that includes the GATK command and one that invokes parallel to execute the GATK command. You also need a list of bam files that you will process.
+
+### 1. Create the file of samples
+Your file will be a simple .txt file that contains one line per individual, and on each line  you need the path to the reference genome and the path to the sample, delimited by a comma. It will look something like this
+
 ```
+/sackettl/BTPD_genome/btpd_pilon_gb_renamed.fasta,/sackettl/PD/LCS_408-475A.rmdup.bam
+/sackettl/BTPD_genome/btpd_pilon_gb_renamed.fasta,/sackettl/PD/LCS_409-476A.rmdup.bam
+.
+.
+.
+```
+
+### 2. Create the script with the GATK command
+Now, you need to create a bash file that includes information on how to run GATK. This has to include all the information for a proper GATK run, including temporary directories for huge files, activating conda environments, etc. You also need one line at the beginning to tell the computer it is a bash file.
+```
+#!/bin/bash
+
+OUTPUT=temp-gvcf
+
+source /sackettl/miniconda3/etc/profile.d/conda.sh
+source activate gatk44_env
+
+#where you have GATK and Java (required version 17+) installed
+export PATH="/project/sackettl/gatk-4.4.0.0/:$PATH"
+export PATH="/project/sackettl/jdk-17.0.6/bin:$PATH"
+
+REFERENCE=$1
+INPUT=$2
+FILENAME=$(basename -- "$INPUT")
+FILENAME_PART="${FILENAME%.*}"
+OUT1=$OUTPUT/$FILENAME.g.vcf.gz
+
+mkdir -p $OUTPUT
+
+gatk --java-options "-Xmx16G -XX:ParallelGCThreads=4" HaplotypeCaller --ERC GVCF -R $REFERENCE -I $INPUT -O $OUT1 --min-base-quality-score 20
 
 ```
 
+You can see that above, you have written the line of code that will call HaploCaller to create g.vcf files.
+
+
+
+### 3. Create the parallel script to submit
+This is the actual job script that you will submit to the HPC. This is where you allocate computing resources. Here, the main thing we are doing is running GNU Parallel -- and we are running it to execute GATK. 
+```
+#!/bin/bash
+#SBATCH -p queuename 
+#SBATCH -N 2
+#SBATCH -n 48
+#SBATCH -t 72:00:00
+#SBATCH -A allocation_name 
+#SBATCH -o haploC-parallel_041023.out
+#SBATCH -e haploC-parallel_041023.err
+
+export JOBS_PER_NODE=4
+
+module load parallel
+
+scontrol show hostname $SLURM_NODELIST > nodelist
+
+cd /where/all_bam_files/are/
+
+parallel --colsep '\,' \
+        --progress \
+        --slf nodelist \
+        --joblog logfile.haplotype_gvcf.$SLURM_JOBID \
+        -j $JOBS_PER_NODE \
+        --workdir $SLURM_SUBMIT_DIR \
+        -a bams-to-haplotype-call.txt \
+        ./haplocaller-gvcf.sh {$1}  
+
+```
+
+### 4. Combine the individual g.vcf files into a single vcf
+Now you need to combine all individual genotypes into a combined vcf file using GATK's [CombineVCFs tool](https://gatk.broadinstitute.org/hc/en-us/articles/360037053272-CombineGVCFs). For some reason, this tool doesn't seem to like the command on multiple lines. The first example includes the ```--variant``` flag for each sample -- see below if you have lots of samples and you want to automate this.
+
+```
+#!/bin/bash
+#SBATCH -p queue_name
+#SBATCH -N 1
+#SBATCH -n 48
+#SBATCH -t 72:00:00
+#SBATCH -A allocation_name
+#SBATCH -o haplocaller_041123.out
+#SBATCH -e haplocaller_041123.err
+
+source /project/sackettl/miniconda3/etc/profile.d/conda.sh
+source activate gatk44_env
+
+export JOBS_PER_NODE=24
+
+export PATH="/project/sackettl/gatk-4.4.0.0/:$PATH"
+export PATH="/project/sackettl/jdk-17.0.6/bin:$PATH"
+
+cd /work/sackettl/CanadaPD
+
+gatk --java-options "-Xmx16G -XX:ParallelGCThreads=4" CombineGVCFs -R /sackettl/BTPD_genome/btpd_pilon_gb_renamed.fasta --variant TaS_1_249-656A.rmdup.bam.g.vcf.gz --variant TaS_2_429-075A.rmdup.bam.g.vcf.gz --variant TaS_3_437-671A.rmdup.bam.g.vcf.gz --variant TaS_4_408-475A.rmdup.bam.g.vcf.gz --variant TaS_5_424-063A.rmdup.bam.g.vcf.gz --variant TaS_6_425-522A.rmdup.bam.g.vcf.gz --variant TaS_7_240-162A.rmdup.bam.g.vcf.gz -O CanadaPD_7samples_Q20.g.vcf.gz 
+
+```
+
+If you have more than a handful of input files, it becomes cumbersome to input them one by one. You can instead create a file that contains a list of all your input files and then feed that into the ```--variant``` flag:
+
+```
+find /path/to/dir -type f -name "*.vcf.gz" > input.list
+```
+
+### 6. Genotype the combined samples
+We are finally ready to actually genotype the samples! 
+
+```
+#!/bin/bash
+#SBATCH -p queue_name
+#SBATCH -N 1
+#SBATCH -n 48
+#SBATCH -t 72:00:00
+#SBATCH -A allocation_name
+#SBATCH -o genotyper_041723.out
+#SBATCH -e genotyper_041723.err
+
+source /project/sackettl/miniconda3/etc/profile.d/conda.sh
+source activate gatk44_env
+
+export JOBS_PER_NODE=24
+
+export PATH="/project/sackettl/gatk-4.4.0.0/:$PATH"
+export PATH="/project/sackettl/jdk-17.0.6/bin:$PATH"
+
+gatk --java-options "-Xmx16G -XX:ParallelGCThreads=4" GenotypeGVCFs -R /sackettl/BTPD_genome/btpd_pilon_gb_renamed.fasta -V cohort.g.vcf.gz -O cohort.vcf.gz
+```
+
+
+
+### 7. Filter the called genotypes
+We now have a genotype file for the whole dataset and we are almost ready to go! There is just a little bit more quality filtering we need to do first. :whale2:
+
+In GATK, SelectVariants removes variants not passing criteria; VariantFiltration keeps & flags the variants not passing filters, and adds annotations in the filter fields.
+
+:first_place_medal: First, filter the dataset to include only SNPs (or if you have good reason to expect you might see multi-allelic variants in your dataset, include SNPs and MNPs). Doing this will exclude indels and non-variatn sites from the dataset.
+```
+#!/bin/bash
+#SBATCH -p queue_name
+#SBATCH -N 1
+#SBATCH -n 48
+#SBATCH -t 16:00:00
+#SBATCH -A allocation_name
+#SBATCH -o genotyper_041723.out
+#SBATCH -e genotyper_041723.err
+
+source /project/sackettl/miniconda3/etc/profile.d/conda.sh
+source activate gatk44_env
+
+export JOBS_PER_NODE=48
+
+export PATH="/project/sackettl/gatk-4.4.0.0/:$PATH"
+export PATH="/project/sackettl/jdk-17.0.6/bin:$PATH"
+
+gatk --java-options "-Xmx16G -XX:ParallelGCThreads=4" SelectVariants --variant input.vcf -R /path/to/ref.fasta --output output.vcf -select-type SNP -select-type MNP --exclude-non-variants true --set-filtered-gt-to-nocall true
+```
+Reference-based SNP calling considers a SNP to be a base that is different from the reference, so you’ll get bases that are SNPs in your dataset but also bases that are fixed in your dataset but differ from the reference. Genotypes are 0/1 if homozygous for reference/alternate allele, 1/1 if homozygous for alternate allele,  ./. if missing.
+
+:second_place_medal: Next, [filter based on quality of the SNPs](https://gatk.broadinstitute.org/hc/en-us/articles/360035531012--How-to-Filter-on-genotype-using-VariantFiltration). This requires two steps: First, the genotype is annotated with a filter expression using VariantFiltration. Then, the filtered genotypes are made into no-call (./.) genotypes with SelectVariants so that downstream tools may discount them. 
+
+```
+#!/bin/bash
+#SBATCH -p queue_name
+#SBATCH -N 1
+#SBATCH -n 48
+#SBATCH -t 16:00:00
+#SBATCH -A allocation_name
+#SBATCH -o flag-variants_041723.out
+#SBATCH -e flag-variants_041723.err
+
+source /project/sackettl/miniconda3/etc/profile.d/conda.sh
+source activate gatk44_env
+
+export JOBS_PER_NODE=48
+
+export PATH="/project/sackettl/gatk-4.4.0.0/:$PATH"
+export PATH="/project/sackettl/jdk-17.0.6/bin:$PATH"
+
+gatk --java-options "-Xmx16G -XX:ParallelGCThreads=4" \
+VariantFiltration --variant inputSNPs.vcf --output outputSNPsQC.vcf -R /reference/ref.fasta \
+--filter-name "ReadPosRankSumFilter" \
+--filter-expression "ReadPosRankSum < -8.0" \
+--filter-name "MQRankSumFilter" --filter-expression "MQRankSum < -12.5" \
+--filter-name "FSFilter" --filter-expression " FS > 60.0" \
+--filter-name "QDFilter” --filter-expression "QD < 2.0" \
+--genotype-filter-name "DP8filter" --genotype-filter-expression "DP < 8"  2>/dev/null
+```
+
+where
+```--filterExpression``` is for the INFO field (global per locus) and ```--genotype-filter-expression``` is for the FORMAT field (specific genotypes).
+
+This tool will produce lots of warnings because many of these flags are evaluated only at heterozygotes. To avoid getting a million (literally) warnings that "RPRS does not exist", add the argument ```2>/dev/null``` to the end in order to redirect warnings to an output file. 
+
+More information about each of these flags can be found in the GATK documentation for [VariantFiltration](https://gatk.broadinstitute.org/hc/en-us/articles/13832655155099--Tool-Documentation-Index#VariantFiltration).
+
+
+:third_place_medal: Finally, use SelectVariants to include only the variants passing filters.
+```
+#!/bin/bash
+#SBATCH -p queue_name
+#SBATCH -N 1
+#SBATCH -n 48
+#SBATCH -t 16:00:00
+#SBATCH -A allocation_name
+#SBATCH -o flag-variants_041723.out
+#SBATCH -e flag-variants_041723.err
+
+source /project/sackettl/miniconda3/etc/profile.d/conda.sh
+source activate gatk44_env
+
+export JOBS_PER_NODE=48
+
+export PATH="/project/sackettl/gatk-4.4.0.0/:$PATH"
+export PATH="/project/sackettl/jdk-17.0.6/bin:$PATH"
+
+gatk --java-options "-Xmx16G -XX:ParallelGCThreads=4" SelectVariants \
+--variant SNPsQC.vcf --output SNPsQConly.vcf -R /reference/ref.fasta --set-filtered-gt-to-nocall true
+
+```
+
+Now you finally have your genotype file! :trophy: 
+
+You can do additional filtering, SNP subsetting (e.g., to map only to certain genomic regions, etc.) as desired. The next version of this pipeline will detail some of the more common steps people use.
 
 
 ## Part III: Population Genomic Analyses
