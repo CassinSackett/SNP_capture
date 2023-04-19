@@ -255,10 +255,19 @@ Your file will be a simple .txt file that contains one line per individual, and 
 ```
 /sackettl/BTPD_genome/btpd_pilon_gb_renamed.fasta,/sackettl/PD/LCS_408-475A.rmdup.bam
 /sackettl/BTPD_genome/btpd_pilon_gb_renamed.fasta,/sackettl/PD/LCS_409-476A.rmdup.bam
-.
-.
-.
+/sackettl/BTPD_genome/btpd_pilon_gb_renamed.fasta,/sackettl/PD/LCS_410-477A.rmdup.bam
+etc.
 ```
+
+To generate this file, type into the command line (you don't need to submit a job):
+```
+REFERENCE=/sackettl/BTPD_genome/btpd_pilon_gb_renamed.fasta
+```
+using the path to your reference genome, followed by
+```
+for BAM in /sackettl/merged_bamfiles/*rmdup.bam; do echo "$REFERENCE,$BAM" >> bams-to-haplotype-call.txt; done
+```
+
 
 ### 2. Create the script with the GATK command
 Now, you need to create a bash file that includes information on how to run GATK. This has to include all the information for a proper GATK run, including temporary directories for huge files, activating conda environments, etc. You also need one line at the beginning to tell the computer it is a bash file.
@@ -357,6 +366,11 @@ find /path/to/dir -type f -name "*.vcf.gz" > input.list
 ### 6. Genotype the combined samples
 We are finally ready to actually genotype the samples! 
 
+:::danger
+Note: For use in downstream filtering and analyses, we want the output file to be .vcf (not .g.vcf).
+:::
+
+
 ```
 #!/bin/bash
 #SBATCH -p queue_name
@@ -378,14 +392,14 @@ export PATH="/project/sackettl/jdk-17.0.6/bin:$PATH"
 gatk --java-options "-Xmx16G -XX:ParallelGCThreads=4" GenotypeGVCFs -R /sackettl/BTPD_genome/btpd_pilon_gb_renamed.fasta -V cohort.g.vcf.gz -O cohort.vcf.gz
 ```
 
-
-
 ### 7. Filter the called genotypes
 We now have a genotype file for the whole dataset and we are almost ready to go! There is just a little bit more quality filtering we need to do first. :whale2:
 
-In GATK, SelectVariants removes variants not passing criteria; VariantFiltration keeps & flags the variants not passing filters, and adds annotations in the filter fields.
+In GATK, SelectVariants removes variants not passing criteria; VariantFiltration keeps & flags the variants not passing filters, and adds annotations in the filter fields. 
 
-:first_place_medal: First, filter the dataset to include only SNPs (or if you have good reason to expect you might see multi-allelic variants in your dataset, include SNPs and MNPs). Doing this will exclude indels and non-variatn sites from the dataset.
+#### 7a. Filter the dataset to include only SNPs
+
+First, filter the dataset to include only SNPs (or if you have good reason to expect you might see multi-allelic variants in your dataset, include SNPs and MNPs). Doing this will exclude indels and non-variatn sites from the dataset.
 ```
 #!/bin/bash
 #SBATCH -p queue_name
@@ -408,7 +422,8 @@ gatk --java-options "-Xmx16G -XX:ParallelGCThreads=4" SelectVariants --variant i
 ```
 Reference-based SNP calling considers a SNP to be a base that is different from the reference, so you’ll get bases that are SNPs in your dataset but also bases that are fixed in your dataset but differ from the reference. Genotypes are 0/1 if homozygous for reference/alternate allele, 1/1 if homozygous for alternate allele,  ./. if missing.
 
-:second_place_medal: Next, [filter based on quality of the SNPs](https://gatk.broadinstitute.org/hc/en-us/articles/360035531012--How-to-Filter-on-genotype-using-VariantFiltration). This requires two steps: First, the genotype is annotated with a filter expression using VariantFiltration. Then, the filtered genotypes are made into no-call (./.) genotypes with SelectVariants so that downstream tools may discount them. 
+#### 7b. Filter based on SNP quality
+Next, [filter based on quality of the SNPs](https://gatk.broadinstitute.org/hc/en-us/articles/360035531012--How-to-Filter-on-genotype-using-VariantFiltration). This requires two steps: First, the genotype is annotated with a filter expression using VariantFiltration. Then, the filtered genotypes are made into no-call (./.) genotypes with SelectVariants so that downstream tools may discount them. 
 
 ```
 #!/bin/bash
@@ -445,8 +460,9 @@ This tool will produce lots of warnings because many of these flags are evaluate
 
 More information about each of these flags can be found in the GATK documentation for [VariantFiltration](https://gatk.broadinstitute.org/hc/en-us/articles/13832655155099--Tool-Documentation-Index#VariantFiltration).
 
+#### 7c. Remove variants not passing filters
 
-:third_place_medal: Finally, use SelectVariants to include only the variants passing filters.
+Finally, use SelectVariants to include only the variants passing filters.
 ```
 #!/bin/bash
 #SBATCH -p queue_name
@@ -470,9 +486,9 @@ gatk --java-options "-Xmx16G -XX:ParallelGCThreads=4" SelectVariants \
 
 ```
 
-Now you finally have your genotype file! :trophy: 
+Now you finally have your base genotype file! :trophy: 
 
-You can do additional filtering, SNP subsetting (e.g., to map only to certain genomic regions, etc.) as desired. The next version of this pipeline will detail some of the more common steps people use.
+You can do additional filtering, SNP subsetting (e.g., to map only to certain genomic regions, etc.) as desired. The next steps of this pipeline will detail some of the more common steps we use.
 
 
 ## Part III: Population Genomic Analyses
