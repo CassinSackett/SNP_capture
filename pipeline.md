@@ -241,7 +241,9 @@ The objectives of [GATK](https://gatk.broadinstitute.org/hc/en-us) (**G**enome *
 2. filter sequences (remove malformed reads)
 3. genotype
 
-:bulb: GATK on our HPC behaves oddly sometimes. In versions 3.5 & 3.7, if the program doesn't recognize the reference it won't throw a useful error, but the logfile will say ```Picked up _JAVA_OPTIONS: -XX+UseSerialGC``` (which is normal and is also output with other stuff when the program runs) and the program won't run. In versions 4, the program will run but not to completion. Also, instead of the typical java -jar GenomeAnalysisTK.jar we use locally, on the HPC we invoke gatk with 'rungatk' (it creates the necessary alias).
+Other folks have gone into more detail about modifying GATK for nonmodel organisms. [This is a nice step-by-step guide](https://evodify.com/gatk-in-non-model-organism/) with graphics and steps to evaluate your data as you go.
+
+:bulb: GATK on our previous HPC behaved oddly sometimes. In versions 3.5 & 3.7, if the program doesn't recognize the reference it won't throw a useful error, but the logfile will say ```Picked up _JAVA_OPTIONS: -XX+UseSerialGC``` (which is normal and is also output with other stuff when the program runs) and the program won't run. In versions 4, the program will run but not to completion. Also, instead of the typical java -jar GenomeAnalysisTK.jar we use locally, on the HPC we invoke gatk with 'rungatk' (it creates the necessary alias).
 
 If you have more than a few samples (or even a few samples with really large files, e.g., >2GB per tagged bam file), you will need to create genotype files for each individual (.g.vcf) and then combine them all into one. The first part is done with a tool called HaplotypeCaller. This is memory intensive and takes forever, so it needs to be run with either:
 * a special module called [GNU parallel](https://www.gnu.org/software/parallel/) that allows it to run across many nodes efficiently, or
@@ -329,9 +331,11 @@ parallel --colsep '\,' \
         ./haplocaller-gvcf.sh {$1}  
 
 ```
+At the end of this step, you should have a .g.vcf file and an index (.tbi) file for each sample.
 
-### 4. Combine the individual g.vcf files into a single vcf
-Now you need to combine all individual genotypes into a combined vcf file using GATK's [CombineVCFs tool](https://gatk.broadinstitute.org/hc/en-us/articles/360037053272-CombineGVCFs). For some reason, this tool doesn't seem to like the command on multiple lines. The first example includes the ```--variant``` flag for each sample -- see below if you have lots of samples and you want to automate this.
+
+### 4. Combine the individual g.vcf files into a single g.vcf with all samples
+Now you need to combine all individual genotypes into a combined g.vcf file using GATK's [CombineVCFs tool](https://gatk.broadinstitute.org/hc/en-us/articles/360037053272-CombineGVCFs). For some reason, this tool doesn't seem to like the command on multiple lines. The first example includes the ```--variant``` flag for each sample -- see below if you have lots of samples and you want to automate this.
 
 ```
 #!/bin/bash
@@ -364,12 +368,12 @@ find /path/to/dir -type f -name "*.vcf.gz" > input.list
 ```
 
 ### 6. Genotype the combined samples
-We are finally ready to actually genotype the samples! 
+We are finally ready to actually genotype the samples! :champagne: We will use GATK's [GenotypeGVCFs](https://gatk.broadinstitute.org/hc/en-us/articles/360056970432-GenotypeGVCFs) tool to do so.
 
 :::danger
-Note: For use in downstream filtering and analyses, we want the output file to be .vcf (not .g.vcf).
+:eyes:  Note: For use in downstream filtering and analyses, we want the output file to be .vcf (not .g.vcf). :eyes:
 :::
-
+ 
 
 ```
 #!/bin/bash
@@ -393,19 +397,19 @@ gatk --java-options "-Xmx16G -XX:ParallelGCThreads=4" GenotypeGVCFs -R /sackettl
 ```
 
 ### 7. Filter the called genotypes
-We now have a genotype file for the whole dataset and we are almost ready to go! There is just a little bit more quality filtering we need to do first. :whale2:
+We now have a genotype file for the whole dataset and we are almost ready to go! There is just a little bit more quality :whale2: filtering  :whale2: we need to do first.  
 
 In GATK, SelectVariants removes variants not passing criteria; VariantFiltration keeps & flags the variants not passing filters, and adds annotations in the filter fields. 
 
 #### 7a. Filter the dataset to include only SNPs
 
-First, filter the dataset to include only SNPs (or if you have good reason to expect you might see multi-allelic variants in your dataset, include SNPs and MNPs). Doing this will exclude indels and non-variatn sites from the dataset.
+First, filter the dataset to include only SNPs (or if you have good reason to expect you might see multi-allelic variants in your dataset, include SNPs and MNPs). Doing this will exclude indels and non-variant sites from the dataset. You can make another set of indel-only variants.
 ```
 #!/bin/bash
 #SBATCH -p queue_name
 #SBATCH -N 1
 #SBATCH -n 48
-#SBATCH -t 16:00:00
+#SBATCH -t 4:00:00
 #SBATCH -A allocation_name
 #SBATCH -o genotyper_041723.out
 #SBATCH -e genotyper_041723.err
@@ -430,7 +434,7 @@ Next, [filter based on quality of the SNPs](https://gatk.broadinstitute.org/hc/e
 #SBATCH -p queue_name
 #SBATCH -N 1
 #SBATCH -n 48
-#SBATCH -t 16:00:00
+#SBATCH -t 12:00:00
 #SBATCH -A allocation_name
 #SBATCH -o flag-variants_041723.out
 #SBATCH -e flag-variants_041723.err
@@ -489,6 +493,68 @@ gatk --java-options "-Xmx16G -XX:ParallelGCThreads=4" SelectVariants \
 Now you finally have your base genotype file! :trophy: 
 
 You can do additional filtering, SNP subsetting (e.g., to map only to certain genomic regions, etc.) as desired. The next steps of this pipeline will detail some of the more common steps we use.
+
+### 8. Filter loci and individuals in vcftools
+[VCFtools](https://vcftools.github.io/man_latest.html) is user friendly, versatile, and fast, and has easy-to-interpret documentation. It is a good idea to look at the distribution of genotypes across sites and individuals, and filter the dataset accordingly.  vcftools is fast, so we'll do these next steps all at once in an interactive session.
+
+Let's start an interactive session:
+```
+srun --time 3:00:00 --ntasks=48 --nodes=1 --account=loni_xxx --partition=workq --pty /bin/bash 
+```
+Next, let's go through a few short steps to generate statistics about the file, determine missing data among individuals, etc.
+
+#### 8a. Generate data statistics
+
+```
+/project/sackettl/vcftools/bin/vcf-stats data.vcf > data.stats.txt
+```
+If you run the above line of code and get an error about vcf.pm, type this on the command line and then try again
+
+```
+export PERL5LIB=./vcftools_0.1.12b/perl
+```
+
+#### 8b. Remove sites that didn't pass filters
+The first thing you want to do is remove all sites that didn’t pass all filters in case this didn't happen correctly in GATK. You can do this with
+```
+vcftools --vcf infile.vcf --recode --remove-filtered-all --out output_prefix 
+```
+You may need to replace ```--remove-filtered-all``` with ```--remove-filtered-geno-all```.
+
+#### 8c. Remove sites not following Mendelian inheritance
+If you have family groups in your data, it's a good idea to remove the SNPs that do not follow Mendelian inheritance patterns (typically 5 - 10% of SNPs). You can do this with a built-in tool in vcftools. I created a vcf that was just for the individuals in the family group, found and output loci that violated Mendelian assumptions, and used that locus list to exclude loci from my final vcf with all individuals. 
+```
+vcftools --vcf amakihiN9_famgroup.recode.vcf --out family_group --mendel amakihi_familygroup_80pct_cut.ped 
+```
+where the ```.ped``` file gives family relationships
+
+#### 8d. Remove individuals that sequenced poorly
+Some datasets (e.g., [if you are working on an endangered species or captive populations and you really want information about all individuals](https://link.springer.com/article/10.1007/s10592-021-01382-x)) may want to take a more conservative approach to removing individuals, but poorly sequenced individuals can significantly reduce the number of loci in analyses if kept in the dataset.
+
+First, determine the amount of missing data per individual:
+```
+vcftools --vcf input.vcf --missing-indv --out outfile_prefix
+```
+This will produce a table, the last two columns of which are the number and percentage of missing data. Make a list of individuals to remove based on your criteria and then
+```
+vcftools --vcf input_file.vcf --remove indivs_missing80pct.txt --recode --out input_file_20pctind
+```
+I am a stickler for specific filenames. You will generate so many intermediate files that it really helps to know exactly which data subset each file contains!
+
+#### 8e. Remove sites contained in a small percentage of individuals
+The precise suitable threshold for missing data will vary on the dataset and the study goals, but I tend to use ~75% - 80% complete (20-25% missing) for most of my datasets.
+```
+vcftools --vcf input_file.vcf --recode --max-missing 0.8 --out outfile_prefix 
+```
+The max-missing number is kind of backwards: it requires a floating point # between 0 and 1, where 1 is no missing allowed. So max-missing 0.8 is an 80% complete dataset, or in other words each included site is genotyped in at least 80% of individuals.
+
+
+#### 8f. Remove sites that may be artifacts
+It's a good idea to remove sites that contain SNPs occurring in only one or two individuals, as they may be artifacts. 
+```
+vcftools --vcf input_file.vcf --maf 0.1 --out outfile_maf0.1
+```
+
 
 
 ## Part III: Population Genomic Analyses
