@@ -28,3 +28,5 @@ NOTE: cat FileB >> FileA adds FileB to the end of FileA, but cat FileB > FileA c
 Install packages with wget package_name or yum install package_name
 
 If samples were sequenced on multiple runs or lanes, concatenate them. If you will merge reads, make sure the concatenation is in the same order for both reads. If the replicates are in different folders, enter into one of the folders and concatenate with a loop: for i in *fastq; do cat $i ../Mayrun/$i > ../Junerun/$i; done
+
+Replace whitespace with tab: tr " " "\t" < Expinf_spaces.txt > Expinf_tabs.txt
