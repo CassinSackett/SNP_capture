@@ -29,7 +29,7 @@ On some computers, the command will be ```md5``` instead of ```md5sum```.
 Copy the md5 codes from your terminal output and compare them to the files sent by the sequencing company. I use the lazy way and copy all the md5 info into one text file and open it in BBEdit. Then when you put the cursor within one of the codes, it will underline the whole code if that sequence appears again in the file.
 
 #### 1b. Run [FastQC](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/) on compressed files - this may take a long time to uncompress the files
-[FastQC](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/) is a software that uses quality information for each base within the fastq file to make graphical interpretations of the quality. These allow us to evaluate the quality of the raw sequences and decide how much we need to trim from the end of each read.
+[FastQC](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/) is a software that uses quality information for each base within the fastq file to make graphical interpretations of the quality. These allow us to evaluate the quality of the raw sequences and decide how much we need to trim from the end of each read. You can also look at the output to figure out which adapters the sequencing facility used, if you do not already know.
 ```javascript
 #!/bin/bash
 #SBATCH -q workq
@@ -73,8 +73,10 @@ where
 * ```MINLENGTH``` drops sequences shorter than this length after the previous steps
 
 
-#### 1e. Re-run fastqc on the trimmed samples and compare the number of reads before and after quality filtering. 
-If you have a ton of samples, you can just look at a few to get an idea of how much changed. After this, use a batch script to compress original fq files to save space (``` for i in *1.fastq; do gzip $i; done```).
+#### 1e. Re-run fastqc on the trimmed samples 
+You may want to compare the number of reads before and after quality filtering, but the main reason I do this is to check that all the adapter sequences have been removed. If there are still some highly repeated sequences, I add them to the file provided by Trimmomatic and re-run the previous step.
+
+If you have a ton of samples, you can just look at a few to get an idea of how well the trimming step worked. After you are satisfied, use a batch script to compress original fq files to save space (``` for i in *1.fastq; do gzip $i; done```).
 
 ### Step 2: Align reads to your reference genome
 #### 2a. If your reference genome has not been indexed (i.e., if the only file in the directory is the .fasta file), you should index it now.  
@@ -124,6 +126,8 @@ Parameter flags should be listed in this order (v first), where
 * –t: # threads 
 * –P: In paired-end mode, perform SW to rescue missing hits only but do not try to find hits that fit a proper pair 
 * –a: Output all alignments for single-end or unpaired paired-end reads. These alignments will be flagged as secondary alignments.
+
+Note: I will probably change this in the next iteration of the pipeline to convert this script from a for loop to a GNU parallel submission, similar to the GATK step :athletic_shoe: below.
 
 ### Step 3: Convert .sam files to bam files for downstream analyses
 If you mapped paired reads and did not quality filter bases/reads previously (i.e., if you went straight from Trimmomatic to bwa), do so now by adding the q flag (before the other flags) and a mapping quality threshold, e.g., ```-q 30```
@@ -179,28 +183,8 @@ i in *.bam; do runpicard AddOrReplaceReadGroups ...
 ```
 
 
-#### 4b. If samples were sequenced on multiple runs or lanes, merge reads now. 
-:warning: If samples are merged now, they cannot be called in the GATK haplocaller. GATK recommends genotyping them separately and then merging. :warning: (I will fix this in the next iteration of this pipeline - for now I did a quick-fix (or a quick-hopefully-fix) by retagging all of the samples with ID=4 instead of using their names/lane info)
- 
-All of the .bam files need to be in the same folder for this step.
-```
-#!/bin/bash
-#SBATCH -n 48
-#SBATCH ...
-
-TMP_DIR=$PWD/tmp
-
-for i in /pdog/*L001.tag.bam; 
-do 
-        java -Xmx2g -jar /project/sackettl/picard.jar \
-        MergeSamFiles -INPUT $i -INPUT ${i%L001_tag.bam}L002_tag.bam -INPUT ${i%L001_tag.bam}L007_tag.bam -INPUT ${i%L001_tag.bam}L008_tag.bam \
-        -OUTPUT ${i%L001_tag.bam}.merged.bam -MAX_RECORDS_IN_RAM 1000000 -TMP_DIR $PWD/tmp;
-done 
-
-```
-
-#### 4c. Remove PCR duplicates
-This step removes PCR duplicates. You should look at the metrics file for statistics on how many were duplicates, etc. 
+#### 4b. Remove PCR duplicates and merge samples
+This step removes PCR duplicates.  If samples were sequenced on multiple runs or lanes, merge reads in this step. :warning: Merging here renders files unable to be processed in HaploCaller. I will amend this recommendation ASAP. :warning: You should look at the metrics file for statistics on how many were duplicates, etc. 
 
 ```
 #!/bin/bash
@@ -209,19 +193,22 @@ This step removes PCR duplicates. You should look at the metrics file for statis
 
 TMP_DIR=$PWD/tmp
 
-for i in /project/sackettl/MolEvol/pdog/*merged.bam;  
-do
-        java -Xmx4g -jar /project/sackettl/picard.jar \
-        MarkDuplicates -INPUT $i -OUTPUT ${i%merged.bam}rmdup.bam \
-        -MAX_RECORDS_IN_RAM 1000000 -MAX_FILE_HANDLES_FOR_READ_ENDS_MAP 9000 \
-        -TMP_DIR $PWD/temp -METRICS_FILE ${i%merged.bam}rmdup.metrics -ASSUME_SORTED true;
-done
+export JOBS_PER_NODE=48
+
+java -Xmx16g -jar /project/sackettl/picard.jar MarkDuplicates -INPUT BLFB06_S1_L001_Q20.tag.bam -INPUT BLFB06_S1_L002_Q20.tag.bam -INPUT BLFB06_S1_L007_Q20.tag.bam -INPUT BLFB06_S1_L008_Q20.tag.bam \
+	-OUTPUT BLFB06_S1_L008_Q20.rmdup.bam -MAX_RECORDS_IN_RAM 1000000 -MAX_FILE_HANDLES_FOR_READ_ENDS_MAP 9000 -TMP_DIR $PWD/tmp -METRICS_FILE BLFB06_S1_L008_Q20.rmdup.metrics -ASSUME_SORTED true
+
+java -Xmx16g -jar /project/sackettl/picard.jar MarkDuplicates -INPUT BLFB09_S26_L001_Q20.tag.bam -INPUT BLFB09_S26_L002_Q20.tag.bam -INPUT BLFB09_S26_L007_Q20.tag.bam -INPUT BLFB09_S26_L008_Q20.tag.bam \
+	-OUTPUT BLFB09_S26_L008_Q20.rmdup.bam -MAX_RECORDS_IN_RAM 1000000 -MAX_FILE_HANDLES_FOR_READ_ENDS_MAP 9000 -TMP_DIR $PWD/tmp -METRICS_FILE BLFB09_S26_L008_Q20.rmdup.metrics -ASSUME_SORTED true
+.
+.
+.
 
 ```
 
-#### 4d. Index sorted, duplicate-filtered bam files
+#### 4c. Index the sorted, merged, duplicate-filtered bam files
 
-All bam files (.tag.bam, etc.) need to be in the same folder for this step.
+If you get an error, try moving all the bam files (.tag.bam, etc.) in the same folder for this step.
 
 ```
 #!/bin/bash
@@ -243,13 +230,13 @@ The objectives of [GATK](https://gatk.broadinstitute.org/hc/en-us) (**G**enome *
 
 Other folks have gone into more detail about modifying GATK for nonmodel organisms. [This is a nice step-by-step guide](https://evodify.com/gatk-in-non-model-organism/) with graphics and steps to evaluate your data as you go.
 
-:bulb: GATK on our previous HPC behaved oddly sometimes. In versions 3.5 & 3.7, if the program doesn't recognize the reference it won't throw a useful error, but the logfile will say ```Picked up _JAVA_OPTIONS: -XX+UseSerialGC``` (which is normal and is also output with other stuff when the program runs) and the program won't run. In versions 4, the program will run but not to completion. Also, instead of the typical java -jar GenomeAnalysisTK.jar we use locally, on the HPC we invoke gatk with 'rungatk' (it creates the necessary alias).
+:bulb: GATK on our previous HPC behaved oddly sometimes. In versions 3.5 & 3.7, if the program doesn't recognize the reference it won't throw a useful error, but the logfile will say ```Picked up _JAVA_OPTIONS: -XX+UseSerialGC``` (which is normal and is also output with other stuff when the program runs) and the program won't run. In versions 4, the program will run but not to completion. 
 
 If you have more than a few samples (or even a few samples with really large files, e.g., >2GB per tagged bam file), you will need to create genotype files for each individual (.g.vcf) and then combine them all into one. The first part is done with a tool called HaplotypeCaller. This is memory intensive and takes forever, so it needs to be run with either:
 * a special module called [GNU parallel](https://www.gnu.org/software/parallel/) that allows it to run across many nodes efficiently, or
 * a special version of the program known as GATK-spark (with Spark being another parallelization tool)
 
-We use GNU parallel.  Scripts for running GATK with parallel were modeled after [those written by the Faircloth lab](https://protocols.faircloth-lab.org/en/latest/protocols-computer/analysis/analysis-gatk-parallel.html). To do so, you need to have two separate files: one that includes the GATK command and one that invokes parallel to execute the GATK command. You also need a list of bam files that you will process.
+We use GNU parallel.  Scripts for running GATK with parallel were modeled after [those written by the Faircloth lab](https://protocols.faircloth-lab.org/en/latest/protocols-computer/analysis/analysis-gatk-parallel.html). To do so, you need to have three separate files: one that includes the GATK command, one that invokes parallel to execute the GATK command, and one that contains a list of bam files that you will process.
 
 ### 1. Create the file of samples
 Your file will be a simple .txt file that contains one line per individual, and on each line  you need the path to the reference genome and the path to the sample, delimited by a comma. It will look something like this
@@ -271,7 +258,7 @@ for BAM in /sackettl/merged_bamfiles/*rmdup.bam; do echo "$REFERENCE,$BAM" >> ba
 ```
 
 
-### 2. Create the script with the GATK command
+### 2. Create the script containing the GATK command
 Now, you need to create a bash file that includes information on how to run GATK. This has to include all the information for a proper GATK run, including temporary directories for huge files, activating conda environments, etc. You also need one line at the beginning to tell the computer it is a bash file.
 ```
 #!/bin/bash
@@ -490,7 +477,7 @@ gatk --java-options "-Xmx16G -XX:ParallelGCThreads=4" SelectVariants \
 
 ```
 
-Now you finally have your base genotype file! :trophy: 
+:trophy: Now you finally have your base genotype file! :trophy: 
 
 You can do additional filtering, SNP subsetting (e.g., to map only to certain genomic regions, etc.) as desired. The next steps of this pipeline will detail some of the more common steps we use.
 
@@ -506,25 +493,26 @@ Next, let's go through a few short steps to generate statistics about the file, 
 #### 8a. Generate data statistics
 
 ```
-/project/sackettl/vcftools/bin/vcf-stats data.vcf > data.stats.txt
+/sackettl/vcftools/bin/vcf-stats data.vcf > data.stats.txt
 ```
 If you run the above line of code and get an error about vcf.pm, type this on the command line and then try again
 
 ```
 export PERL5LIB=./vcftools_0.1.12b/perl
 ```
+(adjust for wherever vcftools is calling perl from -- e.g., ```export PERL5LIB=/sackettl/vcftools/src/perl```)
 
 #### 8b. Remove sites that didn't pass filters
 The first thing you want to do is remove all sites that didn’t pass all filters in case this didn't happen correctly in GATK. You can do this with
 ```
-vcftools --vcf infile.vcf --recode --remove-filtered-all --out output_prefix 
+vcftools --gzvcf infile.vcf.gz --recode --remove-filtered-all --out output_prefix 
 ```
 You may need to replace ```--remove-filtered-all``` with ```--remove-filtered-geno-all```.
 
 #### 8c. Remove sites not following Mendelian inheritance
 If you have family groups in your data, it's a good idea to remove the SNPs that do not follow Mendelian inheritance patterns (typically 5 - 10% of SNPs). You can do this with a built-in tool in vcftools. I created a vcf that was just for the individuals in the family group, found and output loci that violated Mendelian assumptions, and used that locus list to exclude loci from my final vcf with all individuals. 
 ```
-vcftools --vcf amakihiN9_famgroup.recode.vcf --out family_group --mendel amakihi_familygroup_80pct_cut.ped 
+vcftools --gzvcf amakihiN9_famgroup.recode.vcf.gz --out family_group --mendel amakihi_familygroup_80pct_cut.ped 
 ```
 where the ```.ped``` file gives family relationships
 
@@ -533,7 +521,7 @@ Some datasets (e.g., [if you are working on an endangered species or captive pop
 
 First, determine the amount of missing data per individual:
 ```
-vcftools --vcf input.vcf --missing-indv --out outfile_prefix
+vcftools --vcf input.recode.vcf --missing-indv --out outfile_prefix
 ```
 This will produce a table, the last two columns of which are the number and percentage of missing data. Make a list of individuals to remove based on your criteria and then
 ```
@@ -555,9 +543,34 @@ It's a good idea to remove sites that contain SNPs occurring in only one or two 
 vcftools --vcf input_file.vcf --maf 0.1 --out outfile_maf0.1
 ```
 
+#### 8g. Validate the vcf file
+This can be done with either vcftools or GATK.
+```
+vcf-validator file.vcf.gz
+```
+
 
 
 ## Part III: Population Genomic Analyses
+FINALLY we are ready to get to the fun part! :microscope:  :butterfly: 
+
+Let's start with some standard diversity metrics in vcftools. We can continue our interactive session or start a new one.
+
+### 1. Calculate inbreeding coefficients
+VCFtools calls this metric ```het``` but it is not how heterozygosity is traditionally measured; it is an inbreeding coefficient. It is informative about the degree of diversity within individuals.
+```
+
+```
 
 
+### x. Convert .vcf files to other types
+Once you want to move beyond descriptive statistics in VCFtools, you'll probably need to convert the .vcf file to file formats useable in other software.
+
+#### xa. Convert to phylip, nexus, fasta
+For phylogenetic analyses, you'll likely need either a phylip, nexus, and/or fasta file. There is an [efficient and easy-to-use software](https://github.com/edgardomortiz/vcf2phylip) to do this for you, [vcf2phylip](https://github.com/edgardomortiz/vcf2phylip).
+
+The **only** thing you have to do is ```git clone``` to download the software :boom: and then
+```
+python vcf2phylip/vcf2phylip.py -i input.vcf --output-prefix mydata --phylip-disable --nexus
+```
 
