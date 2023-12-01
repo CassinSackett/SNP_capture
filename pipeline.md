@@ -557,7 +557,7 @@ FINALLY we are ready to get to the fun part! :microscope:  :butterfly:
 Let's start with some standard diversity metrics in vcftools. We can continue our interactive session or start a new one.
 
 ### 1. Calculate inbreeding coefficients
-VCFtools calls this metric ```het``` but it is not how heterozygosity is traditionally measured; it is an inbreeding coefficient. It is informative about the degree of diversity within individuals.
+VCFtools calls this metric ```het``` and it is calculated as the number of homozygous sites relative to the total number of sites. It is informative about the degree of diversity within individuals.
 ```
 
 ```
