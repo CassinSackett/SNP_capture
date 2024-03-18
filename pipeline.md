@@ -24,11 +24,27 @@ or, to run in a loop (best done within a batch script for multiple large files; 
 
 for i in *.fastq.gz; do md5sum $i; done
 ```
-On some computers, the command will be ```md5``` instead of ```md5sum```.
+On a Mac, the command will be ```md5``` instead of ```md5sum```.
 
 Copy the md5 codes from your terminal output and compare them to the files sent by the sequencing company. I use the lazy way and copy all the md5 info into one text file and open it in BBEdit. Then when you put the cursor within one of the codes, it will underline the whole code if that sequence appears again in the file.
 
-#### 1b. Run [FastQC](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/) on compressed files - this may take a long time to uncompress the files
+Alternatively, create two files - one of md5s from the actual files downloaded, and one of the correct md5s provided by the sequencing facility. Then you can use awk to make a file of md5s from the sequencing facility that do not have a match on your drive:
+
+```
+awk 'NR==FNR{a[$2]; next} !($1 in a)' file2 file1 | awk '{print $0}' > newfile
+```
+where ```NR==FNR``` means for each record or line; ```a[$2]``` means check the second field in the file; ```next} !($1 in a)``` means if the string is not in the first field in the next file; and ```print $0``` prints the entire line from the second file for which the second column does not contain a match in the first file.
+
+
+
+#### 1b. Count the number of reads per sample
+Then you can repeat this step after quality filtering to check how many were retained.
+```
+for i in *_R1_*.fastq.gz; do echo $i; gunzip -c $i | wc -l | awk '{print $1/4}'; done
+```
+
+
+#### 1c. Run [FastQC](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/) on compressed files - this may take a long time to uncompress the files
 [FastQC](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/) is a software that uses quality information for each base within the fastq file to make graphical interpretations of the quality. These allow us to evaluate the quality of the raw sequences and decide how much we need to trim from the end of each read. You can also look at the output to figure out which adapters the sequencing facility used, if you do not already know.
 ```javascript
 #!/bin/bash
@@ -43,13 +59,13 @@ Copy the md5 codes from your terminal output and compare them to the files sent 
 /project/sackettl/FastQC/fastqc *fastq.gz --threads 16 --outdir=/work/yourname/
 ```
 
-#### 1c. Copy html files to your local drive to open them in a browser.  
+#### 1d. Copy html files to your local drive to open them in a browser.  
 In a shell for your local machine, navigate to where you want the files and type 
 ```javascript    
 scp yourname@qbc.loni.org:/work/yourname/*html ./
 ```
 
-#### 1d. Based on fastqc results, trim files to a length that contains a large proportion of high-quality reads (usually Q20+ or Q30). 
+#### 1e. Based on fastqc results, trim files to a length that contains a large proportion of high-quality reads (usually Q20+ or Q30). 
 I run [Trimmomatic](https://github.com/usadellab/Trimmomatic) in paired-end mode, but it will keep unpaired reads if you want to use them later. You can also use TrimGalore or edit the python script ```fastq_trimmer.py```  found in [this repository](https://github.com/CassinSackett/SNP_capture/). It is important to know that Trimmomatic trims in the order the parameters are written in the command line (so for example, putting MINLEN:60 as the first step would have no effect since all the reads are 150bp)
 
 ```javascript
@@ -73,10 +89,12 @@ where
 * ```MINLENGTH``` drops sequences shorter than this length after the previous steps
 
 
-#### 1e. Re-run fastqc on the trimmed samples 
+#### 1f. Re-run fastqc on the trimmed samples 
 You may want to compare the number of reads before and after quality filtering, but the main reason I do this is to check that all the adapter sequences have been removed. If there are still some highly repeated sequences, I add them to the file provided by Trimmomatic and re-run the previous step.
 
-If you have a ton of samples, you can just look at a few to get an idea of how well the trimming step worked. After you are satisfied, use a batch script to compress original fq files to save space (``` for i in *1.fastq; do gzip $i; done```).
+If you have a ton of samples, you can just look at a few (maybe the samples you suspect to be lower quality) to get an idea of how well the trimming step worked. After you are satisfied, use a batch script to compress original fq files to save space (``` for i in *1.fastq; do gzip $i; done```).
+
+After this, you may want to count the number of reads remaining, as in 1a.
 
 ### Step 2: Align reads to your reference genome
 #### 2a. If your reference genome has not been indexed (i.e., if the only file in the directory is the .fasta file), you should index it now.  
@@ -383,8 +401,12 @@ export PATH="/project/sackettl/jdk-17.0.6/bin:$PATH"
 gatk --java-options "-Xmx16G -XX:ParallelGCThreads=4" GenotypeGVCFs -R /sackettl/BTPD_genome/btpd_pilon_gb_renamed.fasta -V cohort.g.vcf.gz -O cohort.vcf.gz
 ```
 
+This step will generate a vcf file that you will need later to calculate nucleotide diversity -- save it!
+
 ### 7. Filter the called genotypes
 We now have a genotype file for the whole dataset and we are almost ready to go! There is just a little bit more quality :whale2: filtering  :whale2: we need to do first.  
+
+:warning: We will eventually want to calculate nucleotide diversity (pi) across all sites in the genome that pass quality filters, so I need to switch the order of these steps. It should be 7b, 7c, and then 7a. This way I can calculate pi on the file produced from 7c. :warning: 
 
 In GATK, SelectVariants removes variants not passing criteria; VariantFiltration keeps & flags the variants not passing filters, and adds annotations in the filter fields. 
 
@@ -557,10 +579,18 @@ FINALLY we are ready to get to the fun part! :microscope:  :butterfly:
 Let's start with some standard diversity metrics in vcftools. We can continue our interactive session or start a new one.
 
 ### 1. Calculate inbreeding coefficients
-VCFtools calls this metric ```het``` and it is calculated as the number of homozygous sites relative to the total number of sites. It is informative about the degree of diversity within individuals.
+VCFtools calls this metric ```het``` but it is technically an inbreeding coefficient calculated from expected heterozygosity. It is informative about the degree of diversity within individuals.
 ```
 
 ```
+
+### 2. Calculate nucleotide diversity
+We do this using pi as calculated in vcftools. However, calculating diversity only at variable sites like SNPs is meaningless, so we have to return to our original, quality filtered vcf file with all sites (SNPs, indels, monomorphic).
+
+```
+
+```
+
 
 
 ### x. Convert .vcf files to other types
