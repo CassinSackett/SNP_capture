@@ -362,7 +362,15 @@ export PATH="/project/sackettl/jdk-17.0.6/bin:$PATH"
 
 cd /work/sackettl/CanadaPD
 
-gatk --java-options "-Xmx16G -XX:ParallelGCThreads=4" CombineGVCFs -R /sackettl/BTPD_genome/btpd_pilon_gb_renamed.fasta --variant TaS_1_249-656A.rmdup.bam.g.vcf.gz --variant TaS_2_429-075A.rmdup.bam.g.vcf.gz --variant TaS_3_437-671A.rmdup.bam.g.vcf.gz --variant TaS_4_408-475A.rmdup.bam.g.vcf.gz --variant TaS_5_424-063A.rmdup.bam.g.vcf.gz --variant TaS_6_425-522A.rmdup.bam.g.vcf.gz --variant TaS_7_240-162A.rmdup.bam.g.vcf.gz -O CanadaPD_7samples_Q20.g.vcf.gz 
+gatk --java-options "-Xmx16G -XX:ParallelGCThreads=4" CombineGVCFs -R /sackettl/BTPD_genome/btpd_pilon_gb_renamed.fasta \
+    --variant TaS_1_249-656A.rmdup.bam.g.vcf.gz \
+    --variant TaS_2_429-075A.rmdup.bam.g.vcf.gz \
+    --variant TaS_3_437-671A.rmdup.bam.g.vcf.gz \
+    --variant TaS_4_408-475A.rmdup.bam.g.vcf.gz \
+    --variant TaS_5_424-063A.rmdup.bam.g.vcf.gz \
+    --variant TaS_6_425-522A.rmdup.bam.g.vcf.gz \
+    --variant TaS_7_240-162A.rmdup.bam.g.vcf.gz \
+    -O CanadaPD_7samples_Q20.g.vcf.gz 
 
 ```
 
@@ -376,7 +384,7 @@ find /path/to/dir -type f -name "*.vcf.gz" > input.list
 We are finally ready to actually genotype the samples! :champagne: We will use GATK's [GenotypeGVCFs](https://gatk.broadinstitute.org/hc/en-us/articles/360056970432-GenotypeGVCFs) tool to do so.
 
 :::danger
-:eyes:  Note: For use in downstream filtering and analyses, we want the output file to be .vcf (not .g.vcf). :eyes:
+:eyes:  Note: For use in downstream filtering and analyses, we want the output file to be .vcf (not .g.vcf). You will not get a warning/error if you accidentally use .g.vcf, but you won't be able to use that file. :eyes:
 :::
  
 
@@ -398,10 +406,13 @@ export JOBS_PER_NODE=24
 export PATH="/project/sackettl/gatk-4.4.0.0/:$PATH"
 export PATH="/project/sackettl/jdk-17.0.6/bin:$PATH"
 
-gatk --java-options "-Xmx16G -XX:ParallelGCThreads=4" GenotypeGVCFs -R /sackettl/BTPD_genome/btpd_pilon_gb_renamed.fasta -V cohort.g.vcf.gz -O cohort.vcf.gz
+gatk --java-options "-Xmx16G -XX:ParallelGCThreads=4" GenotypeGVCFs -R /sackettl/BTPD_genome/btpd_pilon_gb_renamed.fasta \
+    --include-non-variant-sites true \
+    -V cohort.g.vcf.gz \
+    -O cohort.vcf.gz
 ```
 
-This step will generate a vcf file that you will need later to calculate nucleotide diversity -- save it!
+This step will generate a vcf file that you will need later to calculate nucleotide diversity (pi), which can be calculated correctly ***only*** on files with all genotyped sites (including non-variant sites). Save this file!
 
 ### 7. Filter the called genotypes
 We now have a genotype file for the whole dataset and we are almost ready to go! There is just a little bit more quality :whale2: filtering  :whale2: we need to do first.  
@@ -593,7 +604,7 @@ We do this using pi as calculated in vcftools. However, calculating diversity on
 
 
 
-### x. Convert .vcf files to other types
+### 3. Convert .vcf files to other types
 Once you want to move beyond descriptive statistics in VCFtools, you'll probably need to convert the .vcf file to file formats useable in other software.
 
 #### xa. Convert to phylip, nexus, fasta
@@ -604,3 +615,4 @@ The **only** thing you have to do is ```git clone``` to download the software :b
 python vcf2phylip/vcf2phylip.py -i input.vcf --output-prefix mydata --phylip-disable --nexus
 ```
 
+Now we are ready to move on to some actual analyses-- Let's start our population genetics analyses and tests for selection [here](https://hackmd.io/@sacketlc/BkMHsLQGr)!
