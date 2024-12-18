@@ -417,13 +417,13 @@ This step will generate a vcf file that you will need later to calculate nucleot
 ### 7. Filter the called genotypes
 We now have a genotype file for the whole dataset and we are almost ready to go! There is just a little bit more quality :whale2: filtering  :whale2: we need to do first.  
 
-:warning: We will eventually want to calculate nucleotide diversity (pi) across all sites in the genome that pass quality filters, so I need to switch the order of these steps. It should be 7b, 7c, and then 7a. This way I can calculate pi on the file produced from 7c. :warning: 
+ 
 
 In GATK, SelectVariants removes variants not passing criteria; VariantFiltration keeps & flags the variants not passing filters, and adds annotations in the filter fields. 
 
 #### 7a. Filter the dataset to include only SNPs
 
-First, filter the dataset to include only SNPs (or if you have good reason to expect you might see multi-allelic variants in your dataset, include SNPs and MNPs). Doing this will exclude indels and non-variant sites from the dataset. You can make another set of indel-only variants.
+First, filter the dataset to exclude indels. You can decide later if you want to make a new file with only SNPs (or if you have good reason to expect you might see multi-allelic variants in your dataset, with SNPs and MNPs). We will keep non-variant sites for now, for calculation of pi. You can make another set of indel-only variants.
 ```
 #!/bin/bash
 #SBATCH -p queue_name
@@ -442,11 +442,13 @@ export JOBS_PER_NODE=48
 export PATH="/project/sackettl/gatk-4.4.0.0/:$PATH"
 export PATH="/project/sackettl/jdk-17.0.6/bin:$PATH"
 
-gatk --java-options "-Xmx16G -XX:ParallelGCThreads=4" SelectVariants --variant input.vcf -R /path/to/ref.fasta --output output.vcf -select-type SNP -select-type MNP --exclude-non-variants true --set-filtered-gt-to-nocall true
+gatk --java-options "-Xmx16G -XX:ParallelGCThreads=4" SelectVariants --variant input.vcf -R /path/to/ref.fasta --output output.vcf --select-type-to-exclude INDEL --select-type-to-exclude SYMBOLIC  --exclude-non-variants false --set-filtered-gt-to-nocall true
 ```
 Reference-based SNP calling considers a SNP to be a base that is different from the reference, so you’ll get bases that are SNPs in your dataset but also bases that are fixed in your dataset but differ from the reference. Genotypes are 0/1 if homozygous for reference/alternate allele, 1/1 if homozygous for alternate allele,  ./. if missing.
 
-#### 7b. Filter based on SNP quality
+Here, we have excluded sites with indels, BUT there may be sites in our dataset that have both a SNP and a 1-position deletion. To remove those as well, add ```--select-type-to-exclude MIXED```.
+
+#### 7b. Filter based on site quality
 Next, [filter based on quality of the SNPs](https://gatk.broadinstitute.org/hc/en-us/articles/360035531012--How-to-Filter-on-genotype-using-VariantFiltration). This requires two steps: First, the genotype is annotated with a filter expression using VariantFiltration. Then, the filtered genotypes are made into no-call (./.) genotypes with SelectVariants so that downstream tools may discount them. 
 
 ```
@@ -506,9 +508,22 @@ export PATH="/project/sackettl/gatk-4.4.0.0/:$PATH"
 export PATH="/project/sackettl/jdk-17.0.6/bin:$PATH"
 
 gatk --java-options "-Xmx16G -XX:ParallelGCThreads=4" SelectVariants \
---variant SNPsQC.vcf --output SNPsQConly.vcf -R /reference/ref.fasta --set-filtered-gt-to-nocall true
+--variant SNPsQC.vcf --output SNPsQConly.vcf -R /reference/ref.fasta --exclude-non-variants false --set-filtered-gt-to-nocall true
 
 ```
+
+Now you can use this file, which should have all SNP and invariant sites, to calculate nucleotide diversity pi (either by site or in windows) and perform other analyses that require invariant sites.
+
+Finally, repeat this step and exclude invariant sites to end up with your file of SNPs and MNPs. (you could also do this in the same job, producing two output files)
+
+```
+gatk --java-options "-Xmx16G -XX:ParallelGCThreads=4" SelectVariants \
+    --variant SNPsQC.vcf --output SNPsQConly.vcf \
+    -R /reference/ref.fasta --exclude-non-variants true \
+    --set-filtered-gt-to-nocall true
+
+```
+
 
 :trophy: Now you finally have your base genotype file! :trophy: 
 
